@@ -22,8 +22,15 @@ struct ContentView: View {
     @AppStorage("singlePlayerShowNumberLabels") private var singlePlayerShowNumberLabels = true
     @AppStorage("twoPlayerShowNumberLabels") private var twoPlayerShowNumberLabels = true
     @AppStorage("zeroPlayerShowNumberLabels") private var zeroPlayerShowNumberLabels = true
-    @AppStorage("playerOneName") private var playerOneName = "Player 1"
-    @AppStorage("playerTwoName") private var playerTwoName = "Player 2"
+    @AppStorage("singlePlayerOneName") private var singlePlayerOneName = "Player 1"
+    @AppStorage("singlePlayerTwoName") private var singlePlayerTwoName = "Player 2"
+    @AppStorage("twoPlayerOneName") private var twoPlayerOneName = "Player 1"
+    @AppStorage("twoPlayerTwoName") private var twoPlayerTwoName = "Player 2"
+    @AppStorage("zeroPlayerOneName") private var zeroPlayerOneName = "Player 1"
+    @AppStorage("zeroPlayerTwoName") private var zeroPlayerTwoName = "Player 2"
+    @AppStorage("playerOneName") private var legacyPlayerOneName = "Player 1"
+    @AppStorage("playerTwoName") private var legacyPlayerTwoName = "Player 2"
+    @AppStorage("modeSpecificPlayerNamesMigrated") private var modeSpecificPlayerNamesMigrated = false
     @State private var isSettingsPresented = false
     @State private var isGameHistoryPresented = false
     @State private var hasRecordedCurrentCompletedGame = false
@@ -81,6 +88,7 @@ struct ContentView: View {
             gameHistorySheet
         }
         .onAppear {
+            migratePlayerNamesIfNeeded()
             restoreSavedGameIfNeeded()
         }
     }
@@ -210,15 +218,71 @@ struct ContentView: View {
         )
     }
 
-    private func displayName(for player: Player) -> String {
-        switch player {
-        case .playerOne:
-            let trimmedName = playerOneName.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmedName.isEmpty ? "Player 1" : trimmedName
-        case .playerTwo:
-            let trimmedName = playerTwoName.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmedName.isEmpty ? "Player 2" : trimmedName
+    private var currentPlayerOneNameBinding: Binding<String> {
+        Binding(
+            get: { playerName(for: .playerOne, in: gameMode) },
+            set: { setPlayerName($0, for: .playerOne, in: gameMode) }
+        )
+    }
+
+    private var currentPlayerTwoNameBinding: Binding<String> {
+        Binding(
+            get: { playerName(for: .playerTwo, in: gameMode) },
+            set: { setPlayerName($0, for: .playerTwo, in: gameMode) }
+        )
+    }
+
+    private func playerName(for player: Player, in mode: GameMode) -> String {
+        switch (mode, player) {
+        case (.singlePlayer, .playerOne):
+            singlePlayerOneName
+        case (.singlePlayer, .playerTwo):
+            singlePlayerTwoName
+        case (.twoPlayer, .playerOne):
+            twoPlayerOneName
+        case (.twoPlayer, .playerTwo):
+            twoPlayerTwoName
+        case (.zeroPlayer, .playerOne):
+            zeroPlayerOneName
+        case (.zeroPlayer, .playerTwo):
+            zeroPlayerTwoName
         }
+    }
+
+    private func setPlayerName(_ name: String, for player: Player, in mode: GameMode) {
+        switch (mode, player) {
+        case (.singlePlayer, .playerOne):
+            singlePlayerOneName = name
+        case (.singlePlayer, .playerTwo):
+            singlePlayerTwoName = name
+        case (.twoPlayer, .playerOne):
+            twoPlayerOneName = name
+        case (.twoPlayer, .playerTwo):
+            twoPlayerTwoName = name
+        case (.zeroPlayer, .playerOne):
+            zeroPlayerOneName = name
+        case (.zeroPlayer, .playerTwo):
+            zeroPlayerTwoName = name
+        }
+    }
+
+    private func displayName(for player: Player) -> String {
+        let defaultName = player == .playerOne ? "Player 1" : "Player 2"
+        let storedName = playerName(for: player, in: gameMode)
+        let trimmedName = storedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? defaultName : trimmedName
+    }
+
+    private func migratePlayerNamesIfNeeded() {
+        guard !modeSpecificPlayerNamesMigrated else { return }
+
+        singlePlayerOneName = legacyPlayerOneName
+        singlePlayerTwoName = legacyPlayerTwoName
+        twoPlayerOneName = legacyPlayerOneName
+        twoPlayerTwoName = legacyPlayerTwoName
+        zeroPlayerOneName = legacyPlayerOneName
+        zeroPlayerTwoName = legacyPlayerTwoName
+        modeSpecificPlayerNamesMigrated = true
     }
 
     private func aiDifficulty(for player: Player) -> AIDifficulty {
@@ -510,11 +574,11 @@ struct ContentView: View {
                 }
 
                 Section("Names") {
-                    TextField("Player 1", text: $playerOneName)
+                    TextField("Player 1", text: currentPlayerOneNameBinding)
                         .textInputAutocapitalization(.words)
                         .disableAutocorrection(true)
 
-                    TextField("Player 2", text: $playerTwoName)
+                    TextField("Player 2", text: currentPlayerTwoNameBinding)
                         .textInputAutocapitalization(.words)
                         .disableAutocorrection(true)
 
