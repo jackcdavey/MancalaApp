@@ -37,6 +37,7 @@ struct ContentView: View {
     @AppStorage("impossibleSearchTimeLimit") private var impossibleSearchTimeLimit = ContentView.defaultImpossibleTimeLimit
     @State private var impossibleSearchProgress = 0.0
     @State private var impossibleSearchProgressText = ""
+    @AppStorage("savedGameState") private var savedGameState = Data()
 
     private let model = SystemLanguageModel.default
 
@@ -69,6 +70,9 @@ struct ContentView: View {
         .sensoryFeedback(.selection, trigger: hapticTrigger)
         .sheet(isPresented: $isSettingsPresented) {
             settingsSheet
+        }
+        .onAppear {
+            restoreSavedGameIfNeeded()
         }
     }
 
@@ -166,6 +170,20 @@ struct ContentView: View {
 
     private var tableRotationDegrees: Double {
         gameMode == .twoPlayer && flipScreenForTwoPlayerTurns && game.currentPlayer == .playerTwo && !game.isGameOver ? 180 : 0
+    }
+
+    private var impossibleSearchLimitBinding: Binding<Int> {
+        Binding(
+            get: { impossibleSearchLimit },
+            set: { impossibleSearchLimit = min(max($0, 100_000), 100_000_000) }
+        )
+    }
+
+    private var impossibleSearchTimeLimitBinding: Binding<Int> {
+        Binding(
+            get: { impossibleSearchTimeLimit },
+            set: { impossibleSearchTimeLimit = min(max($0, 1), 120) }
+        )
     }
 
     private var modelAvailabilityMessage: String? {
@@ -431,18 +449,38 @@ struct ContentView: View {
 
                                 if impossibleSearchLimitMode == .positions {
                                     Stepper(
-                                        "Max positions: \(impossibleSearchLimit.formatted())",
-                                        value: $impossibleSearchLimit,
+                                        value: impossibleSearchLimitBinding,
                                         in: 100_000...100_000_000,
                                         step: 100_000
-                                    )
+                                    ) {
+                                        HStack {
+                                            Text("Max positions")
+                                            Spacer()
+                                            TextField("Positions", value: impossibleSearchLimitBinding, format: .number)
+                                                .keyboardType(.numberPad)
+                                                .multilineTextAlignment(.trailing)
+                                                .textFieldStyle(.roundedBorder)
+                                                .frame(width: 136)
+                                        }
+                                    }
                                 } else {
                                     Stepper(
-                                        "Max time: \(impossibleSearchTimeLimit)s",
-                                        value: $impossibleSearchTimeLimit,
+                                        value: impossibleSearchTimeLimitBinding,
                                         in: 1...120,
                                         step: 1
-                                    )
+                                    ) {
+                                        HStack {
+                                            Text("Max time")
+                                            Spacer()
+                                            TextField("Seconds", value: impossibleSearchTimeLimitBinding, format: .number)
+                                                .keyboardType(.numberPad)
+                                                .multilineTextAlignment(.trailing)
+                                                .textFieldStyle(.roundedBorder)
+                                                .frame(width: 82)
+                                            Text("s")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                 }
 
                                 Text(impossibleSearchLimitMode.description)
@@ -690,6 +728,7 @@ struct ContentView: View {
             impossibleSearchProgress = 0
             impossibleSearchProgressText = ""
         }
+        persistStableGameState()
 
         if gameMode == .singlePlayer {
             appendAIThought(wasThinking ? "Cancelled AI search and undid the player move." : "Undid the last player and AI moves.")
@@ -709,6 +748,42 @@ struct ContentView: View {
     private func resetGame() {
         undoHistory.removeAll()
         game.reset(startingPlayer: resolvedStartingPlayer())
+        persistStableGameState()
+    }
+
+    private func restoreSavedGameIfNeeded() {
+        guard !savedGameState.isEmpty,
+              let savedGame = try? JSONDecoder().decode(SavedGameState.self, from: savedGameState) else {
+            persistStableGameState()
+            return
+        }
+
+        let restoredGame = savedGame.game
+        guard !restoredGame.isGameOver else {
+            savedGameState = Data()
+            game.reset(startingPlayer: resolvedStartingPlayer())
+            return
+        }
+
+        game = restoredGame
+        undoHistory.removeAll()
+        if gameMode == .singlePlayer,
+           game.currentPlayer == .playerTwo,
+           !game.isGameOver {
+            Task {
+                await runAIMoveIfNeeded()
+            }
+        }
+    }
+
+    private func persistStableGameState() {
+        if game.isGameOver {
+            savedGameState = Data()
+            return
+        }
+
+        guard let data = try? JSONEncoder().encode(SavedGameState(game: game)) else { return }
+        savedGameState = data
     }
 
     private func cancelAIThinking(shouldLog: Bool = true) {
@@ -863,6 +938,8 @@ struct ContentView: View {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 game.playPit(at: selectedIndex)
             }
+            persistStableGameState()
+            await runAIMoveIfNeeded()
             return
         }
 
@@ -900,6 +977,7 @@ struct ContentView: View {
             game.finishAnimatedMove(lastIndex: lastIndex, captureAlreadyApplied: animatedCapture)
             isAnimatingMove = false
         }
+        persistStableGameState()
 
         await runAIMoveIfNeeded()
     }
@@ -1223,7 +1301,30 @@ private struct AIMancalaMove {
     var pitIndex: Int
 }
 
-private enum Player: Equatable {
+private struct SavedGameState: Codable {
+    let pits: [Int]
+    let currentPlayer: String
+    let winner: String?
+    let isDraw: Bool
+
+    init(game: MancalaGame) {
+        pits = game.pits
+        currentPlayer = game.currentPlayer.rawValue
+        winner = game.winner?.rawValue
+        isDraw = game.isDraw
+    }
+
+    var game: MancalaGame {
+        MancalaGame(
+            pits: pits,
+            currentPlayer: Player(rawValue: currentPlayer) ?? .playerOne,
+            winner: winner.flatMap(Player.init(rawValue:)),
+            isDraw: isDraw
+        )
+    }
+}
+
+private enum Player: String, Equatable {
     case playerOne
     case playerTwo
 
@@ -1257,6 +1358,18 @@ private struct MancalaGame {
 
     let playerOnePitIndices = Array(0...5)
     let playerTwoPitIndices = Array(7...12)
+
+    init(
+        pits: [Int] = [4, 4, 4, 4, 4, 4, 0, 4, 4, 4, 4, 4, 4, 0],
+        currentPlayer: Player = .playerOne,
+        winner: Player? = nil,
+        isDraw: Bool = false
+    ) {
+        self.pits = pits.count == 14 ? pits : [4, 4, 4, 4, 4, 4, 0, 4, 4, 4, 4, 4, 4, 0]
+        self.currentPlayer = currentPlayer
+        self.winner = winner
+        self.isDraw = isDraw
+    }
 
     var isGameOver: Bool {
         winner != nil || isDraw
