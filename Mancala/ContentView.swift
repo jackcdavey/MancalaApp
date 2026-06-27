@@ -20,17 +20,21 @@ struct ContentView: View {
     @State private var flyingStone: FlyingStone?
     @State private var isAnimatingMove = false
     @State private var hapticTrigger = 0
-    @State private var gameMode = GameMode.twoPlayer
-    @State private var difficulty = AIDifficulty.medium
-    @State private var startingPlayer = StartingPlayer.human
+    @AppStorage("gameMode") private var gameMode = GameMode.twoPlayer
+    @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = false
+    @AppStorage("difficulty") private var difficulty = AIDifficulty.medium
+    @AppStorage("startingPlayer") private var startingPlayer = StartingPlayer.human
+    @AppStorage("singlePlayerUndoButtonEnabled") private var isSinglePlayerUndoButtonEnabled = false
+    @AppStorage("twoPlayerUndoButtonEnabled") private var isTwoPlayerUndoButtonEnabled = false
     @State private var isSettingsPresented = false
+    @State private var undoHistory: [MancalaGame] = []
     @State private var isAIMovePending = false
     @State private var aiSearchTask: Task<Int?, Never>?
     @State private var isThoughtPanelExpanded = false
     @State private var aiThoughtLog: [String] = []
-    @State private var impossibleSearchLimitMode = ImpossibleSearchLimitMode.positions
-    @State private var impossibleSearchLimit = ContentView.defaultImpossibleSearchLimit
-    @State private var impossibleSearchTimeLimit = ContentView.defaultImpossibleTimeLimit
+    @AppStorage("impossibleSearchLimitMode") private var impossibleSearchLimitMode = ImpossibleSearchLimitMode.positions
+    @AppStorage("impossibleSearchLimit") private var impossibleSearchLimit = ContentView.defaultImpossibleSearchLimit
+    @AppStorage("impossibleSearchTimeLimit") private var impossibleSearchTimeLimit = ContentView.defaultImpossibleTimeLimit
     @State private var impossibleSearchProgress = 0.0
     @State private var impossibleSearchProgressText = ""
 
@@ -136,6 +140,34 @@ struct ContentView: View {
         return false
     }
 
+    private var shouldShowStatusPanel: Bool {
+        gameMode == .singlePlayer
+    }
+
+    private var shouldShowUndoButton: Bool {
+        switch gameMode {
+        case .singlePlayer:
+            isSinglePlayerUndoButtonEnabled
+        case .twoPlayer:
+            isTwoPlayerUndoButtonEnabled
+        }
+    }
+
+    private var canUndoTurn: Bool {
+        guard shouldShowUndoButton, !isAnimatingMove else { return false }
+
+        switch gameMode {
+        case .singlePlayer:
+            return undoHistory.contains { $0.currentPlayer == .playerOne }
+        case .twoPlayer:
+            return !undoHistory.isEmpty
+        }
+    }
+
+    private var tableRotationDegrees: Double {
+        gameMode == .twoPlayer && flipScreenForTwoPlayerTurns && game.currentPlayer == .playerTwo && !game.isGameOver ? 180 : 0
+    }
+
     private var modelAvailabilityMessage: String? {
         switch model.availability {
         case .available:
@@ -153,9 +185,9 @@ struct ContentView: View {
 
     private func gameContent(isPortrait: Bool, availableHeight: CGFloat) -> some View {
         let contentSpacing: CGFloat = isPortrait ? 10 : 18
-        let headerHeight: CGFloat = isPortrait ? 76 : (isThoughtPanelExpanded ? 172 : 64)
-        let statusHeight: CGFloat = isPortrait ? (isThoughtPanelExpanded ? 172 : 46) : 0
-        let visibleStatusSpacing = isPortrait ? contentSpacing : 0
+        let headerHeight: CGFloat = isPortrait ? 76 : (shouldShowStatusPanel && isThoughtPanelExpanded ? 172 : 64)
+        let statusHeight: CGFloat = isPortrait && shouldShowStatusPanel ? (isThoughtPanelExpanded ? 172 : 46) : 0
+        let visibleStatusSpacing = isPortrait && shouldShowStatusPanel ? contentSpacing : 0
         let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing)
         let portraitStoreHeight = min(54, max(38, boardHeight * 0.10))
         let portraitPitHeight = max(34, (boardHeight - 24 - 20 - (portraitStoreHeight * 2) - 40) / 6)
@@ -190,11 +222,31 @@ struct ContentView: View {
                 }
             }
 
-            if isPortrait {
+            if isPortrait && shouldShowStatusPanel {
                 statusPanel
                     .frame(height: statusHeight)
             }
         }
+    }
+
+    private var difficultyPill: some View {
+        let title = gameMode == .singlePlayer ? difficulty.title : "2 Players"
+        let tint = gameMode == .singlePlayer ? difficulty.tint : Color.secondary
+
+        return Text(title)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(primaryText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(isDarkMode ? 0.24 : 0.18))
+            }
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(tint.opacity(isDarkMode ? 0.72 : 0.58), lineWidth: 1)
+            }
+            .accessibilityLabel(gameMode == .singlePlayer ? "Difficulty: \(difficulty.title)" : "Two player mode")
     }
 
     private func header(isPortrait: Bool) -> some View {
@@ -204,18 +256,32 @@ struct ContentView: View {
                     .font(.system(size: 34, weight: .semibold, design: .rounded))
                     .foregroundStyle(primaryText)
 
-                Text("\(game.storeCount(for: .playerOne)) - \(game.storeCount(for: .playerTwo))")
-                    .font(.callout.monospacedDigit().weight(.medium))
-                    .foregroundStyle(secondaryText)
+                difficultyPill
             }
+            .playerFacingRotation(tableRotationDegrees)
 
             Spacer()
 
-            if !isPortrait {
+            if !isPortrait && shouldShowStatusPanel {
                 statusPanel
                     .frame(maxWidth: isThoughtPanelExpanded ? 360 : 260)
 
                 Spacer()
+            }
+
+            if shouldShowUndoButton {
+                Button {
+                    undoLastTurn()
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(primaryText)
+                        .frame(width: 44, height: 44)
+                        .playerFacingRotation(tableRotationDegrees)
+                }
+                .buttonStyle(.glass)
+                .disabled(!canUndoTurn)
+                .accessibilityLabel("Undo last turn")
             }
 
             Button {
@@ -237,6 +303,7 @@ struct ContentView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(primaryText)
                     .frame(width: 44, height: 44)
+                    .playerFacingRotation(tableRotationDegrees)
             }
             .buttonStyle(.glass)
             .disabled(isAnimatingMove)
@@ -249,6 +316,7 @@ struct ContentView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(primaryText)
                     .frame(width: 44, height: 44)
+                    .playerFacingRotation(tableRotationDegrees)
             }
             .buttonStyle(.glass)
             .disabled(isAnimatingMove || isAIMovePending)
@@ -271,11 +339,38 @@ struct ContentView: View {
                             gameMode = .twoPlayer
                         }
 
+                        if newMode == .twoPlayer {
+                            undoHistory.removeAll()
+                        }
+
                         resetForSettingsChange()
                     }
 
                     if let modelAvailabilityMessage {
                         Text(modelAvailabilityMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if gameMode == .twoPlayer {
+                    Section("Table") {
+                        Toggle("Flip Screen Each Turn", isOn: $flipScreenForTwoPlayerTurns)
+
+                        Text("Buttons and labels rotate to face the current player while the board layout stays in place.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Section("Undo") {
+                        Toggle("Show Undo Button", isOn: $isTwoPlayerUndoButtonEnabled)
+                            .onChange(of: isTwoPlayerUndoButtonEnabled) { _, newValue in
+                                if !newValue {
+                                    undoHistory.removeAll()
+                                }
+                            }
+
+                        Text("Undo rolls back the last completed move.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -311,34 +406,49 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    if difficulty == .impossible {
-                        Section("Impossible Search") {
-                            Picker("Limit by", selection: $impossibleSearchLimitMode) {
-                                ForEach(ImpossibleSearchLimitMode.allCases) { mode in
-                                    Text(mode.title).tag(mode)
+                    Section("Undo") {
+                        Toggle("Show Undo Button", isOn: $isSinglePlayerUndoButtonEnabled)
+                            .onChange(of: isSinglePlayerUndoButtonEnabled) { _, newValue in
+                                if !newValue {
+                                    undoHistory.removeAll()
                                 }
                             }
-                            .pickerStyle(.segmented)
 
-                            if impossibleSearchLimitMode == .positions {
-                                Stepper(
-                                    "Max positions: \(impossibleSearchLimit.formatted())",
-                                    value: $impossibleSearchLimit,
-                                    in: 100_000...100_000_000,
-                                    step: 100_000
-                                )
-                            } else {
-                                Stepper(
-                                    "Max time: \(impossibleSearchTimeLimit)s",
-                                    value: $impossibleSearchTimeLimit,
-                                    in: 1...120,
-                                    step: 1
-                                )
+                        Text("Undo cancels AI thinking and rolls back the last player move, or rolls back the last player move plus the AI response.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if difficulty == .impossible {
+                        Section("Advanced") {
+                            DisclosureGroup("Impossible Search") {
+                                Picker("Limit by", selection: $impossibleSearchLimitMode) {
+                                    ForEach(ImpossibleSearchLimitMode.allCases) { mode in
+                                        Text(mode.title).tag(mode)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+
+                                if impossibleSearchLimitMode == .positions {
+                                    Stepper(
+                                        "Max positions: \(impossibleSearchLimit.formatted())",
+                                        value: $impossibleSearchLimit,
+                                        in: 100_000...100_000_000,
+                                        step: 100_000
+                                    )
+                                } else {
+                                    Stepper(
+                                        "Max time: \(impossibleSearchTimeLimit)s",
+                                        value: $impossibleSearchTimeLimit,
+                                        in: 1...120,
+                                        step: 1
+                                    )
+                                }
+
+                                Text(impossibleSearchLimitMode.description)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
                             }
-
-                            Text(impossibleSearchLimitMode.description)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -447,30 +557,33 @@ struct ContentView: View {
                 }
 
                 if isThoughtPanelExpanded {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if isAIMovePending && difficulty == .impossible {
-                            ProgressView(value: impossibleSearchProgress)
-                                .tint(primaryText)
+                    ScrollView([.horizontal, .vertical]) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            if isAIMovePending && difficulty == .impossible {
+                                ProgressView(value: impossibleSearchProgress)
+                                    .tint(primaryText)
 
-                            Text(impossibleSearchProgressText)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(secondaryText)
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                                Text(impossibleSearchProgressText)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(secondaryText)
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
 
-                        ForEach(displayedThoughtLog, id: \.self) { entry in
-                            Text(entry)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(secondaryText)
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            ForEach(displayedThoughtLog, id: \.self) { entry in
+                                Text(entry)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(secondaryText)
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .scrollIndicators(.automatic)
                     .frame(maxWidth: .infinity)
                 }
             }
             .frame(maxWidth: .infinity)
+            .playerFacingRotation(tableRotationDegrees)
             .padding(.vertical, 12)
             .padding(.horizontal, 16)
         }
@@ -520,6 +633,7 @@ struct ContentView: View {
                     .foregroundStyle(primaryText)
                     .contentTransition(.numericText())
             }
+            .playerFacingRotation(tableRotationDegrees)
             .padding(.vertical, verticalInset)
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: minHeight)
@@ -541,6 +655,47 @@ struct ContentView: View {
         gameMode == .twoPlayer || game.owner(ofPitAt: index) == .playerOne
     }
 
+    private func recordUndoSnapshotIfNeeded() {
+        guard shouldShowUndoButton else { return }
+        undoHistory.append(game)
+        if undoHistory.count > 24 {
+            undoHistory.removeFirst(undoHistory.count - 24)
+        }
+    }
+
+    @MainActor
+    private func undoLastTurn() {
+        guard canUndoTurn else { return }
+
+        let wasThinking = isAIMovePending || aiSearchTask != nil
+        let restoreIndex: Int?
+        switch gameMode {
+        case .singlePlayer:
+            restoreIndex = undoHistory.lastIndex(where: { $0.currentPlayer == .playerOne })
+        case .twoPlayer:
+            restoreIndex = undoHistory.indices.last
+        }
+
+        guard let restoreIndex else { return }
+
+        let restoredGame = undoHistory[restoreIndex]
+        cancelAIThinking(shouldLog: false)
+        undoHistory.removeSubrange(restoreIndex..<undoHistory.endIndex)
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            game = restoredGame
+            flyingStone = nil
+            isAnimatingMove = false
+            isAIMovePending = false
+            impossibleSearchProgress = 0
+            impossibleSearchProgressText = ""
+        }
+
+        if gameMode == .singlePlayer {
+            appendAIThought(wasThinking ? "Cancelled AI search and undid the player move." : "Undid the last player and AI moves.")
+        }
+    }
+
     private func resetForSettingsChange() {
         cancelAIThinking()
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
@@ -552,17 +707,18 @@ struct ContentView: View {
     }
 
     private func resetGame() {
+        undoHistory.removeAll()
         game.reset(startingPlayer: resolvedStartingPlayer())
     }
 
-    private func cancelAIThinking() {
+    private func cancelAIThinking(shouldLog: Bool = true) {
         let wasThinking = isAIMovePending || aiSearchTask != nil
         aiSearchTask?.cancel()
         aiSearchTask = nil
         isAIMovePending = false
         impossibleSearchProgress = 0
         impossibleSearchProgressText = ""
-        if wasThinking {
+        if wasThinking && shouldLog {
             appendAIThought("Cancelled AI search.")
         }
     }
@@ -637,6 +793,7 @@ struct ContentView: View {
                     .frame(width: 48)
                     .contentTransition(.numericText())
             }
+            .playerFacingRotation(tableRotationDegrees)
             .padding(.horizontal, 14)
             .glassEffect(.regular.tint(tint), in: .rect(cornerRadius: 20))
             .overlay {
@@ -657,6 +814,7 @@ struct ContentView: View {
                     .foregroundStyle(primaryText)
                     .contentTransition(.numericText())
             }
+            .playerFacingRotation(tableRotationDegrees)
             .frame(minHeight: 148)
             .padding(10)
             .glassEffect(.regular.tint(tint), in: .rect(cornerRadius: 24))
@@ -699,6 +857,7 @@ struct ContentView: View {
     private func animateMove(from selectedIndex: Int) async {
         guard game.canPlayPit(at: selectedIndex), !isAnimatingMove else { return }
 
+        recordUndoSnapshotIfNeeded()
         let path = game.sowingPath(from: selectedIndex)
         guard let sourceFrame = cellFrames[selectedIndex], !path.isEmpty else {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
@@ -1028,6 +1187,19 @@ private enum AIDifficulty: String, CaseIterable, Identifiable {
             "Plays more carefully for store advantage and safer positions."
         case .impossible:
             "Uses deterministic search with pruning, exact endgame solving, and the selected search budget."
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .easy:
+            Color.green
+        case .medium:
+            Color.blue
+        case .hard:
+            Color.orange
+        case .impossible:
+            Color.pink
         }
     }
 
@@ -1815,6 +1987,11 @@ private extension View {
         anchorPreference(key: CellFramePreferenceKey.self, value: .bounds) { anchor in
             [id: anchor]
         }
+    }
+
+    func playerFacingRotation(_ degrees: Double) -> some View {
+        rotationEffect(.degrees(degrees))
+            .animation(.spring(response: 0.38, dampingFraction: 0.86), value: degrees)
     }
 }
 
