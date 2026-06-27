@@ -31,6 +31,8 @@ struct ContentView: View {
     @AppStorage("playerOneName") private var playerOneName = "Player 1"
     @AppStorage("playerTwoName") private var playerTwoName = "Player 2"
     @State private var isSettingsPresented = false
+    @State private var isGameHistoryPresented = false
+    @State private var hasRecordedCurrentCompletedGame = false
     @State private var undoHistory: [MancalaGame] = []
     @State private var isAIMovePending = false
     @State private var aiSearchGeneration = 0
@@ -44,6 +46,7 @@ struct ContentView: View {
     @State private var impossibleSearchProgressText = ""
     @AppStorage("savedSinglePlayerGameState") private var savedSinglePlayerGameState = Data()
     @AppStorage("savedTwoPlayerGameState") private var savedTwoPlayerGameState = Data()
+    @AppStorage("completedGameHistory") private var completedGameHistoryData = Data()
     @AppStorage("savedGameState") private var legacySavedGameState = Data()
 
     private let model = SystemLanguageModel.default
@@ -77,6 +80,9 @@ struct ContentView: View {
         .sensoryFeedback(.selection, trigger: hapticTrigger)
         .sheet(isPresented: $isSettingsPresented) {
             settingsSheet
+        }
+        .sheet(isPresented: $isGameHistoryPresented) {
+            gameHistorySheet
         }
         .onAppear {
             restoreSavedGameIfNeeded()
@@ -352,43 +358,34 @@ struct ContentView: View {
                 .accessibilityLabel("Undo last turn")
             }
 
-            Button {
-                let shouldStartAIAfterReset = !isAIMovePending
-                cancelAIThinking()
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
-                    resetGame()
-                    flyingStone = nil
-                    isAnimatingMove = false
-                    isAIMovePending = false
+            Menu {
+                Button {
+                    isGameHistoryPresented = true
+                } label: {
+                    Label("Game History", systemImage: "clock.arrow.circlepath")
                 }
-                if shouldStartAIAfterReset {
-                    Task {
-                        await runAIMoveIfNeeded()
-                    }
-                }
-            } label: {
-                Image(systemName: "arrow.counterclockwise")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(primaryText)
-                    .frame(width: 44, height: 44)
-                    .playerFacingRotation(tableRotationDegrees)
-            }
-            .buttonStyle(.glass)
-            .disabled(isAnimatingMove)
-            .accessibilityLabel("Reset game")
 
-            Button {
-                isSettingsPresented = true
+                Button {
+                    isSettingsPresented = true
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+
+                Button(role: .destructive) {
+                    resetCurrentGame()
+                } label: {
+                    Label("Reset Game", systemImage: "arrow.counterclockwise")
+                }
+                .disabled(isAnimatingMove)
             } label: {
-                Image(systemName: "gearshape")
+                Image(systemName: "ellipsis")
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(primaryText)
                     .frame(width: 44, height: 44)
                     .playerFacingRotation(tableRotationDegrees)
             }
             .buttonStyle(.glass)
-            .disabled(isAnimatingMove)
-            .accessibilityLabel("Settings")
+            .accessibilityLabel("More options")
         }
     }
 
@@ -591,6 +588,47 @@ struct ContentView: View {
                         Task {
                             await runAIMoveIfNeeded()
                         }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private var gameHistorySheet: some View {
+        NavigationStack {
+            List {
+                let history = completedGameHistory
+                if history.isEmpty {
+                    ContentUnavailableView(
+                        "No Completed Games",
+                        systemImage: "clock.arrow.circlepath",
+                        description: Text("Finished games will appear here.")
+                    )
+                } else {
+                    ForEach(history) { result in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(result.winnerText)
+                                    .font(.headline.weight(.semibold))
+                                Spacer()
+                                Text("\(result.playerOneScore) - \(result.playerTwoScore)")
+                                    .font(.headline.monospacedDigit())
+                            }
+
+                            Text("\(result.playerOneName) vs \(result.playerTwoName)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .navigationTitle("Game History")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        isGameHistoryPresented = false
                     }
                 }
             }
@@ -815,6 +853,7 @@ struct ContentView: View {
             flyingStone = nil
             isAnimatingMove = false
             isAIMovePending = false
+            hasRecordedCurrentCompletedGame = false
             impossibleSearchProgress = 0
             impossibleSearchProgressText = ""
         }
@@ -832,11 +871,29 @@ struct ContentView: View {
             flyingStone = nil
             isAnimatingMove = false
             isAIMovePending = false
+            hasRecordedCurrentCompletedGame = false
+        }
+    }
+
+    private func resetCurrentGame() {
+        let shouldStartAIAfterReset = !isAIMovePending
+        cancelAIThinking()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            resetGame()
+            flyingStone = nil
+            isAnimatingMove = false
+            isAIMovePending = false
+        }
+        if shouldStartAIAfterReset {
+            Task {
+                await runAIMoveIfNeeded()
+            }
         }
     }
 
     private func resetGame() {
         undoHistory.removeAll()
+        hasRecordedCurrentCompletedGame = false
         game.reset(startingPlayer: resolvedStartingPlayer())
         persistStableGameState()
     }
@@ -850,6 +907,7 @@ struct ContentView: View {
             flyingStone = nil
             isAnimatingMove = false
             isAIMovePending = false
+            hasRecordedCurrentCompletedGame = false
             impossibleSearchProgress = 0
             impossibleSearchProgressText = ""
         }
@@ -875,6 +933,7 @@ struct ContentView: View {
         guard let savedGame = savedGameState(for: mode) else {
             game.reset(startingPlayer: resolvedStartingPlayer(for: mode))
             undoHistory.removeAll()
+            hasRecordedCurrentCompletedGame = false
             persistStableGameState(for: mode)
             return
         }
@@ -884,6 +943,7 @@ struct ContentView: View {
             clearSavedGameState(for: mode)
             game.reset(startingPlayer: resolvedStartingPlayer(for: mode))
             undoHistory.removeAll()
+            hasRecordedCurrentCompletedGame = false
             persistStableGameState(for: mode)
             return
         }
@@ -939,6 +999,34 @@ struct ContentView: View {
 
         guard let data = try? JSONEncoder().encode(SavedGameState(game: game)) else { return }
         setSavedGameData(data, for: mode)
+    }
+
+    private var completedGameHistory: [CompletedGameResult] {
+        guard !completedGameHistoryData.isEmpty,
+              let history = try? JSONDecoder().decode([CompletedGameResult].self, from: completedGameHistoryData) else {
+            return []
+        }
+        return history
+    }
+
+    private func recordCompletedGameIfNeeded() {
+        guard game.isGameOver, !hasRecordedCurrentCompletedGame else { return }
+        let result = CompletedGameResult(
+            playerOneName: displayName(for: .playerOne),
+            playerTwoName: displayName(for: .playerTwo),
+            playerOneScore: game.storeCount(for: .playerOne),
+            playerTwoScore: game.storeCount(for: .playerTwo),
+            winnerName: game.winner.map { displayName(for: $0) }
+        )
+        var history = completedGameHistory
+        history.insert(result, at: 0)
+        if history.count > 10 {
+            history.removeLast(history.count - 10)
+        }
+        if let data = try? JSONEncoder().encode(history) {
+            completedGameHistoryData = data
+            hasRecordedCurrentCompletedGame = true
+        }
     }
 
     private func cancelAIThinking(shouldLog: Bool = true) {
@@ -1107,6 +1195,7 @@ struct ContentView: View {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 game.playPit(at: selectedIndex)
             }
+            recordCompletedGameIfNeeded()
             persistStableGameState()
             await runAIMoveIfNeeded()
             return
@@ -1146,6 +1235,7 @@ struct ContentView: View {
             game.finishAnimatedMove(lastIndex: lastIndex, captureAlreadyApplied: animatedCapture)
             isAnimatingMove = false
         }
+        recordCompletedGameIfNeeded()
         persistStableGameState()
 
         await runAIMoveIfNeeded()
@@ -1475,6 +1565,35 @@ private enum AIDifficulty: String, CaseIterable, Identifiable {
 private struct AIMancalaMove {
     @Guide(description: "One legal Player 2 pit index from the provided legal pit list", .range(7...12))
     var pitIndex: Int
+}
+
+private struct CompletedGameResult: Codable, Identifiable {
+    let id: UUID
+    let playerOneName: String
+    let playerTwoName: String
+    let playerOneScore: Int
+    let playerTwoScore: Int
+    let winnerName: String?
+
+    init(
+        id: UUID = UUID(),
+        playerOneName: String,
+        playerTwoName: String,
+        playerOneScore: Int,
+        playerTwoScore: Int,
+        winnerName: String?
+    ) {
+        self.id = id
+        self.playerOneName = playerOneName
+        self.playerTwoName = playerTwoName
+        self.playerOneScore = playerOneScore
+        self.playerTwoScore = playerTwoScore
+        self.winnerName = winnerName
+    }
+
+    var winnerText: String {
+        winnerName.map { "\($0) won" } ?? "Draw game"
+    }
 }
 
 private struct SavedGameState: Codable {
