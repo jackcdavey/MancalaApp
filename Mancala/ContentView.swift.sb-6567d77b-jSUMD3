@@ -26,14 +26,12 @@ struct ContentView: View {
     @AppStorage("startingPlayer") private var startingPlayer = StartingPlayer.human
     @AppStorage("singlePlayerUndoButtonEnabled") private var isSinglePlayerUndoButtonEnabled = false
     @AppStorage("twoPlayerUndoButtonEnabled") private var isTwoPlayerUndoButtonEnabled = false
-    @AppStorage("singlePlayerShowNumberLabels") private var singlePlayerShowNumberLabels = true
-    @AppStorage("twoPlayerShowNumberLabels") private var twoPlayerShowNumberLabels = true
+    @AppStorage("showNumberLabels") private var showNumberLabels = true
     @AppStorage("playerOneName") private var playerOneName = "Player 1"
     @AppStorage("playerTwoName") private var playerTwoName = "Player 2"
     @State private var isSettingsPresented = false
     @State private var undoHistory: [MancalaGame] = []
     @State private var isAIMovePending = false
-    @State private var aiSearchGeneration = 0
     @State private var aiSearchTask: Task<Int?, Never>?
     @State private var isThoughtPanelExpanded = false
     @State private var aiThoughtLog: [String] = []
@@ -44,7 +42,6 @@ struct ContentView: View {
     @State private var impossibleSearchProgressText = ""
     @AppStorage("savedSinglePlayerGameState") private var savedSinglePlayerGameState = Data()
     @AppStorage("savedTwoPlayerGameState") private var savedTwoPlayerGameState = Data()
-    @AppStorage("savedGameState") private var legacySavedGameState = Data()
 
     private let model = SystemLanguageModel.default
 
@@ -177,15 +174,6 @@ struct ContentView: View {
 
     private var tableRotationDegrees: Double {
         gameMode == .twoPlayer && flipScreenForTwoPlayerTurns && game.currentPlayer == .playerTwo && !game.isGameOver ? 180 : 0
-    }
-
-    private var shouldShowNumberLabels: Bool {
-        switch gameMode {
-        case .singlePlayer:
-            singlePlayerShowNumberLabels
-        case .twoPlayer:
-            twoPlayerShowNumberLabels
-        }
     }
 
     private var impossibleSearchLimitBinding: Binding<Int> {
@@ -387,7 +375,7 @@ struct ContentView: View {
                     .playerFacingRotation(tableRotationDegrees)
             }
             .buttonStyle(.glass)
-            .disabled(isAnimatingMove)
+            .disabled(isAnimatingMove || isAIMovePending)
             .accessibilityLabel("Settings")
         }
     }
@@ -402,16 +390,16 @@ struct ContentView: View {
                             .disabled(!isSinglePlayerAvailable)
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: gameMode) { oldMode, newMode in
-                        let resolvedMode: GameMode
+                    .onChange(of: gameMode) { _, newMode in
                         if newMode == .singlePlayer, !isSinglePlayerAvailable {
-                            resolvedMode = .twoPlayer
                             gameMode = .twoPlayer
-                        } else {
-                            resolvedMode = newMode
                         }
 
-                        switchGameMode(from: oldMode, to: resolvedMode)
+                        if newMode == .twoPlayer {
+                            undoHistory.removeAll()
+                        }
+
+                        resetForSettingsChange()
                     }
 
                     if let modelAvailabilityMessage {
@@ -440,14 +428,6 @@ struct ContentView: View {
                         Toggle("Flip Screen Each Turn", isOn: $flipScreenForTwoPlayerTurns)
 
                         Text("Buttons and labels rotate to face the current player while the board layout stays in place.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Section("Display") {
-                        Toggle("Show Numbers", isOn: $twoPlayerShowNumberLabels)
-
-                        Text("Shows the stone counts in each pit and store.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -490,19 +470,8 @@ struct ContentView: View {
                             }
                         }
                         .pickerStyle(.segmented)
-                        .onChange(of: difficulty) { _, _ in
-                            restartAIThinkingForUpdatedSettingsIfNeeded()
-                        }
 
                         Text(difficulty.description)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Section("Display") {
-                        Toggle("Show Numbers", isOn: $singlePlayerShowNumberLabels)
-
-                        Text("Shows the stone counts in each pit and store.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -529,9 +498,6 @@ struct ContentView: View {
                                     }
                                 }
                                 .pickerStyle(.segmented)
-                                .onChange(of: impossibleSearchLimitMode) { _, _ in
-                                    restartAIThinkingForUpdatedSettingsIfNeeded()
-                                }
 
                                 if impossibleSearchLimitMode == .positions {
                                     Stepper(
@@ -572,12 +538,6 @@ struct ContentView: View {
                                 Text(impossibleSearchLimitMode.description)
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
-                            }
-                            .onChange(of: impossibleSearchLimit) { _, _ in
-                                restartAIThinkingForUpdatedSettingsIfNeeded()
-                            }
-                            .onChange(of: impossibleSearchTimeLimit) { _, _ in
-                                restartAIThinkingForUpdatedSettingsIfNeeded()
                             }
                         }
                     }
@@ -754,12 +714,10 @@ struct ContentView: View {
                 stoneCluster(count: game.pits[index])
                     .frame(height: clusterHeight)
 
-                if shouldShowNumberLabels {
-                    Text("\(game.pits[index])")
-                        .font(.system(size: countSize, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(primaryText)
-                        .contentTransition(.numericText())
-                }
+                Text("\(game.pits[index])")
+                    .font(.system(size: countSize, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(primaryText)
+                    .contentTransition(.numericText())
             }
             .playerFacingRotation(tableRotationDegrees)
             .padding(.vertical, verticalInset)
@@ -841,109 +799,43 @@ struct ContentView: View {
         persistStableGameState()
     }
 
-    private func switchGameMode(from oldMode: GameMode, to newMode: GameMode) {
-        persistStableGameState(for: oldMode)
-        cancelAIThinking(shouldLog: oldMode == .singlePlayer && newMode == .singlePlayer)
-
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
-            restoreSavedGame(for: newMode)
-            flyingStone = nil
-            isAnimatingMove = false
-            isAIMovePending = false
-            impossibleSearchProgress = 0
-            impossibleSearchProgressText = ""
-        }
-
-        if newMode == .singlePlayer {
-            Task {
-                await runAIMoveIfNeeded()
-            }
-        }
-    }
-
     private func restoreSavedGameIfNeeded() {
-        migrateLegacySavedGameIfNeeded()
-        restoreSavedGame(for: gameMode)
-        if gameMode == .singlePlayer {
-            Task {
-                await runAIMoveIfNeeded()
-            }
-        }
-    }
-
-    private func restoreSavedGame(for mode: GameMode) {
-        guard let savedGame = savedGameState(for: mode) else {
-            game.reset(startingPlayer: resolvedStartingPlayer(for: mode))
-            undoHistory.removeAll()
-            persistStableGameState(for: mode)
+        guard !savedGameState.isEmpty,
+              let savedGame = try? JSONDecoder().decode(SavedGameState.self, from: savedGameState) else {
+            persistStableGameState()
             return
         }
 
         let restoredGame = savedGame.game
         guard !restoredGame.isGameOver else {
-            clearSavedGameState(for: mode)
-            game.reset(startingPlayer: resolvedStartingPlayer(for: mode))
-            undoHistory.removeAll()
-            persistStableGameState(for: mode)
+            savedGameState = Data()
+            game.reset(startingPlayer: resolvedStartingPlayer())
             return
         }
 
         game = restoredGame
         undoHistory.removeAll()
-    }
-
-    private func migrateLegacySavedGameIfNeeded() {
-        guard !legacySavedGameState.isEmpty,
-              savedGameData(for: gameMode).isEmpty else {
-            return
-        }
-
-        setSavedGameData(legacySavedGameState, for: gameMode)
-        legacySavedGameState = Data()
-    }
-
-    private func savedGameState(for mode: GameMode) -> SavedGameState? {
-        let data = savedGameData(for: mode)
-        guard !data.isEmpty else { return nil }
-        return try? JSONDecoder().decode(SavedGameState.self, from: data)
-    }
-
-    private func savedGameData(for mode: GameMode) -> Data {
-        switch mode {
-        case .singlePlayer:
-            savedSinglePlayerGameState
-        case .twoPlayer:
-            savedTwoPlayerGameState
+        if gameMode == .singlePlayer,
+           game.currentPlayer == .playerTwo,
+           !game.isGameOver {
+            Task {
+                await runAIMoveIfNeeded()
+            }
         }
     }
 
-    private func setSavedGameData(_ data: Data, for mode: GameMode) {
-        switch mode {
-        case .singlePlayer:
-            savedSinglePlayerGameState = data
-        case .twoPlayer:
-            savedTwoPlayerGameState = data
-        }
-    }
-
-    private func clearSavedGameState(for mode: GameMode) {
-        setSavedGameData(Data(), for: mode)
-    }
-
-    private func persistStableGameState(for mode: GameMode? = nil) {
-        let mode = mode ?? gameMode
+    private func persistStableGameState() {
         if game.isGameOver {
-            clearSavedGameState(for: mode)
+            savedGameState = Data()
             return
         }
 
         guard let data = try? JSONEncoder().encode(SavedGameState(game: game)) else { return }
-        setSavedGameData(data, for: mode)
+        savedGameState = data
     }
 
     private func cancelAIThinking(shouldLog: Bool = true) {
         let wasThinking = isAIMovePending || aiSearchTask != nil
-        aiSearchGeneration += 1
         aiSearchTask?.cancel()
         aiSearchTask = nil
         isAIMovePending = false
@@ -951,23 +843,6 @@ struct ContentView: View {
         impossibleSearchProgressText = ""
         if wasThinking && shouldLog {
             appendAIThought("Cancelled AI search.")
-        }
-    }
-
-    @MainActor
-    private func restartAIThinkingForUpdatedSettingsIfNeeded() {
-        guard gameMode == .singlePlayer,
-              game.currentPlayer == .playerTwo,
-              !game.isGameOver,
-              !isAnimatingMove,
-              (isAIMovePending || aiSearchTask != nil) else {
-            return
-        }
-
-        cancelAIThinking(shouldLog: false)
-        appendAIThought("Restarting AI search with updated settings.")
-        Task {
-            await runAIMoveIfNeeded()
         }
     }
 
@@ -1004,9 +879,8 @@ struct ContentView: View {
         }
     }
 
-    private func resolvedStartingPlayer(for mode: GameMode? = nil) -> Player {
-        let mode = mode ?? gameMode
-        guard mode == .singlePlayer else {
+    private func resolvedStartingPlayer() -> Player {
+        guard gameMode == .singlePlayer else {
             return .playerOne
         }
 
@@ -1031,13 +905,11 @@ struct ContentView: View {
                 stoneCluster(count: game.storeCount(for: owner))
                     .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 38)
 
-                if shouldShowNumberLabels {
-                    Text("\(game.storeCount(for: owner))")
-                        .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(primaryText)
-                        .frame(width: 48)
-                        .contentTransition(.numericText())
-                }
+                Text("\(game.storeCount(for: owner))")
+                    .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(primaryText)
+                    .frame(width: 48)
+                    .contentTransition(.numericText())
             }
             .playerFacingRotation(tableRotationDegrees)
             .padding(.horizontal, 14)
@@ -1051,12 +923,10 @@ struct ContentView: View {
                 stoneCluster(count: game.storeCount(for: owner))
                     .frame(height: 48)
 
-                if shouldShowNumberLabels {
-                    Text("\(game.storeCount(for: owner))")
-                        .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(primaryText)
-                        .contentTransition(.numericText())
-                }
+                Text("\(game.storeCount(for: owner))")
+                    .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(primaryText)
+                    .contentTransition(.numericText())
             }
             .playerFacingRotation(tableRotationDegrees)
             .frame(minHeight: 148)
@@ -1162,32 +1032,25 @@ struct ContentView: View {
             return
         }
 
-        aiSearchGeneration += 1
-        let searchGeneration = aiSearchGeneration
         isAIMovePending = true
         aiThoughtLog = []
         impossibleSearchProgress = 0
         impossibleSearchProgressText = ""
         appendAIThought("\(difficulty.title) AI is choosing a move.")
         try? await Task.sleep(for: .milliseconds(350))
-        guard searchGeneration == aiSearchGeneration else { return }
 
         guard let selectedPit = await chooseAIPit() else {
-            guard searchGeneration == aiSearchGeneration else { return }
             isAIMovePending = false
             aiSearchTask = nil
             appendAIThought("No move selected.")
             return
         }
 
-        guard searchGeneration == aiSearchGeneration,
-              isAIMovePending,
+        guard isAIMovePending,
               gameMode == .singlePlayer,
               game.currentPlayer == .playerTwo,
               !game.isGameOver else {
-            if searchGeneration == aiSearchGeneration {
-                aiSearchTask = nil
-            }
+            aiSearchTask = nil
             return
         }
 
