@@ -14,11 +14,14 @@ struct ContentView: View {
     @AppStorage("gameMode") private var gameMode = GameMode.twoPlayer
     @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = false
     @AppStorage("difficulty") private var difficulty = AIDifficulty.medium
+    @AppStorage("zeroPlayerOneDifficulty") private var zeroPlayerOneDifficulty = AIDifficulty.medium
+    @AppStorage("zeroPlayerTwoDifficulty") private var zeroPlayerTwoDifficulty = AIDifficulty.medium
     @AppStorage("startingPlayer") private var startingPlayer = StartingPlayer.human
     @AppStorage("singlePlayerUndoButtonEnabled") private var isSinglePlayerUndoButtonEnabled = false
     @AppStorage("twoPlayerUndoButtonEnabled") private var isTwoPlayerUndoButtonEnabled = false
     @AppStorage("singlePlayerShowNumberLabels") private var singlePlayerShowNumberLabels = true
     @AppStorage("twoPlayerShowNumberLabels") private var twoPlayerShowNumberLabels = true
+    @AppStorage("zeroPlayerShowNumberLabels") private var zeroPlayerShowNumberLabels = true
     @AppStorage("playerOneName") private var playerOneName = "Player 1"
     @AppStorage("playerTwoName") private var playerTwoName = "Player 2"
     @State private var isSettingsPresented = false
@@ -30,6 +33,7 @@ struct ContentView: View {
     @State private var aiSearchTask: Task<Int?, Never>?
     @State private var isThoughtPanelExpanded = false
     @State private var aiThoughtLog: [String] = []
+    @State private var isZeroPlayerPaused = true
     @AppStorage("impossibleSearchLimitMode") private var impossibleSearchLimitMode = ImpossibleSearchLimitMode.positions
     @AppStorage("impossibleSearchLimit") private var impossibleSearchLimit = ContentView.defaultImpossibleSearchLimit
     @AppStorage("impossibleSearchTimeLimit") private var impossibleSearchTimeLimit = ContentView.defaultImpossibleTimeLimit
@@ -37,6 +41,7 @@ struct ContentView: View {
     @State private var impossibleSearchProgressText = ""
     @AppStorage("savedSinglePlayerGameState") private var savedSinglePlayerGameState = Data()
     @AppStorage("savedTwoPlayerGameState") private var savedTwoPlayerGameState = Data()
+    @AppStorage("savedZeroPlayerGameState") private var savedZeroPlayerGameState = Data()
     @AppStorage("completedGameHistory") private var completedGameHistoryData = Data()
     @AppStorage("savedGameState") private var legacySavedGameState = Data()
 
@@ -141,7 +146,7 @@ struct ContentView: View {
         isDarkMode ? Color.cyan.opacity(0.58) : Color.blue.opacity(0.56)
     }
 
-    private var isSinglePlayerAvailable: Bool {
+    private var isAIPlayAvailable: Bool {
         if case .available = model.availability {
             return true
         }
@@ -149,7 +154,7 @@ struct ContentView: View {
     }
 
     private var shouldShowStatusPanel: Bool {
-        gameMode == .singlePlayer
+        gameMode == .singlePlayer || gameMode == .zeroPlayer
     }
 
     private var shouldShowUndoButton: Bool {
@@ -158,6 +163,8 @@ struct ContentView: View {
             isSinglePlayerUndoButtonEnabled
         case .twoPlayer:
             isTwoPlayerUndoButtonEnabled
+        case .zeroPlayer:
+            false
         }
     }
 
@@ -169,6 +176,8 @@ struct ContentView: View {
             return undoHistory.contains { $0.currentPlayer == .playerOne }
         case .twoPlayer:
             return !undoHistory.isEmpty
+        case .zeroPlayer:
+            return false
         }
     }
 
@@ -182,6 +191,8 @@ struct ContentView: View {
             singlePlayerShowNumberLabels
         case .twoPlayer:
             twoPlayerShowNumberLabels
+        case .zeroPlayer:
+            zeroPlayerShowNumberLabels
         }
     }
 
@@ -210,6 +221,32 @@ struct ContentView: View {
         }
     }
 
+    private func aiDifficulty(for player: Player) -> AIDifficulty {
+        switch gameMode {
+        case .singlePlayer:
+            difficulty
+        case .zeroPlayer:
+            player == .playerOne ? zeroPlayerOneDifficulty : zeroPlayerTwoDifficulty
+        case .twoPlayer:
+            difficulty
+        }
+    }
+
+    private var currentAIDifficulty: AIDifficulty {
+        aiDifficulty(for: game.currentPlayer)
+    }
+
+    private func isAIControlled(_ player: Player) -> Bool {
+        switch gameMode {
+        case .zeroPlayer:
+            true
+        case .singlePlayer:
+            player == .playerTwo
+        case .twoPlayer:
+            false
+        }
+    }
+
     private var statusText: String {
         if game.isDraw {
             return "Draw game"
@@ -219,18 +256,48 @@ struct ContentView: View {
             return "\(displayName(for: winner)) wins"
         }
 
+        if gameMode == .zeroPlayer && isZeroPlayerPaused {
+            return "Paused • \(displayName(for: game.currentPlayer))'s turn"
+        }
+
         return "\(displayName(for: game.currentPlayer))'s turn"
     }
 
     private var startingPlayerDescription: String {
+        if gameMode == .zeroPlayer {
+            switch startingPlayer {
+            case .human:
+                return "\(displayName(for: .playerOne)) starts."
+            case .ai:
+                return "\(displayName(for: .playerTwo)) starts."
+            case .random:
+                return "A starting side is chosen each time the game resets."
+            }
+        }
+
         switch startingPlayer {
         case .human:
-            "\(displayName(for: .playerOne)) makes the first move."
+            return "\(displayName(for: .playerOne)) makes the first move."
         case .ai:
-            "\(displayName(for: .playerTwo)) opens."
+            return "\(displayName(for: .playerTwo)) opens."
         case .random:
-            "A starting side is chosen each time the game resets."
+            return "A starting side is chosen each time the game resets."
         }
+    }
+
+    private func startingPlayerTitle(for startingPlayer: StartingPlayer) -> String {
+        if gameMode == .zeroPlayer {
+            switch startingPlayer {
+            case .human:
+                return "Player 1"
+            case .ai:
+                return "Player 2"
+            case .random:
+                return "Random"
+            }
+        }
+
+        return startingPlayer.title
     }
 
     private var modelAvailabilityMessage: String? {
@@ -238,13 +305,13 @@ struct ContentView: View {
         case .available:
             return nil
         case .unavailable(.deviceNotEligible):
-            return "Single player requires a device that supports Apple Intelligence."
+            return "AI play requires a device that supports Apple Intelligence."
         case .unavailable(.appleIntelligenceNotEnabled):
-            return "Turn on Apple Intelligence in Settings to use single player."
+            return "Turn on Apple Intelligence in Settings to use AI play."
         case .unavailable(.modelNotReady):
             return "The on-device model is still getting ready. Try again later."
         case .unavailable:
-            return "Single player is unavailable on this device right now."
+            return "AI play is unavailable on this device right now."
         }
     }
 
@@ -295,8 +362,24 @@ struct ContentView: View {
     }
 
     private var difficultyPill: some View {
-        let title = gameMode == .singlePlayer ? difficulty.title : "2 Players"
-        let tint = gameMode == .singlePlayer ? difficulty.tint : Color.secondary
+        let title: String
+        let tint: Color
+        let accessibilityLabel: String
+
+        switch gameMode {
+        case .singlePlayer:
+            title = difficulty.title
+            tint = difficulty.tint
+            accessibilityLabel = "Difficulty: \(difficulty.title)"
+        case .zeroPlayer:
+            title = "\(zeroPlayerOneDifficulty.title) vs \(zeroPlayerTwoDifficulty.title)"
+            tint = currentAIDifficulty.tint
+            accessibilityLabel = "Zero player mode. Player 1 \(zeroPlayerOneDifficulty.title), Player 2 \(zeroPlayerTwoDifficulty.title)"
+        case .twoPlayer:
+            title = "2 Players"
+            tint = Color.secondary
+            accessibilityLabel = "Two player mode"
+        }
 
         return Text(title)
             .font(.caption.weight(.bold))
@@ -311,7 +394,7 @@ struct ContentView: View {
                 Capsule(style: .continuous)
                     .stroke(tint.opacity(isDarkMode ? 0.72 : 0.58), lineWidth: 1)
             }
-            .accessibilityLabel(gameMode == .singlePlayer ? "Difficulty: \(difficulty.title)" : "Two player mode")
+            .accessibilityLabel(accessibilityLabel)
     }
 
     private func header(isPortrait: Bool) -> some View {
@@ -347,6 +430,21 @@ struct ContentView: View {
                 .buttonStyle(.glass)
                 .disabled(!canUndoTurn)
                 .accessibilityLabel("Undo last turn")
+            }
+
+            if gameMode == .zeroPlayer {
+                Button {
+                    toggleZeroPlayerPlayback()
+                } label: {
+                    Image(systemName: isZeroPlayerPaused ? "play.fill" : "pause.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(primaryText)
+                        .frame(width: 44, height: 44)
+                        .playerFacingRotation(tableRotationDegrees)
+                }
+                .buttonStyle(.glass)
+                .disabled(isAnimatingMove || game.isGameOver)
+                .accessibilityLabel(isZeroPlayerPaused ? "Play zero player game" : "Pause zero player game")
             }
 
             Menu {
@@ -387,12 +485,14 @@ struct ContentView: View {
                     Picker("Mode", selection: $gameMode) {
                         Text("2 Players").tag(GameMode.twoPlayer)
                         Text("1 Player").tag(GameMode.singlePlayer)
-                            .disabled(!isSinglePlayerAvailable)
+                            .disabled(!isAIPlayAvailable)
+                        Text("0 Player").tag(GameMode.zeroPlayer)
+                            .disabled(!isAIPlayAvailable)
                     }
                     .pickerStyle(.segmented)
                     .onChange(of: gameMode) { oldMode, newMode in
                         let resolvedMode: GameMode
-                        if newMode == .singlePlayer, !isSinglePlayerAvailable {
+                        if (newMode == .singlePlayer || newMode == .zeroPlayer), !isAIPlayAvailable {
                             resolvedMode = .twoPlayer
                             gameMode = .twoPlayer
                         } else {
@@ -454,11 +554,11 @@ struct ContentView: View {
                     }
                 }
 
-                if gameMode == .singlePlayer {
+                if gameMode == .singlePlayer || gameMode == .zeroPlayer {
                     Section("First Move") {
                         Picker("Starts", selection: $startingPlayer) {
                             ForEach(StartingPlayer.allCases) { startingPlayer in
-                                Text(startingPlayer.title).tag(startingPlayer)
+                                Text(startingPlayerTitle(for: startingPlayer)).tag(startingPlayer)
                             }
                         }
                         .pickerStyle(.segmented)
@@ -471,44 +571,83 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Section("Difficulty") {
-                        Picker("Skill", selection: $difficulty) {
-                            ForEach(AIDifficulty.allCases) { difficulty in
-                                Text(difficulty.title).tag(difficulty)
+                    if gameMode == .singlePlayer {
+                        Section("Difficulty") {
+                            Picker("Skill", selection: $difficulty) {
+                                ForEach(AIDifficulty.allCases) { difficulty in
+                                    Text(difficulty.title).tag(difficulty)
+                                }
                             }
+                            .pickerStyle(.segmented)
+                            .onChange(of: difficulty) { _, _ in
+                                restartAIThinkingForUpdatedSettingsIfNeeded()
+                            }
+
+                            Text(difficulty.description)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
-                        .pickerStyle(.segmented)
-                        .onChange(of: difficulty) { _, _ in
-                            restartAIThinkingForUpdatedSettingsIfNeeded()
+                    } else {
+                        Section("Player 1 Difficulty") {
+                            Picker("Player 1 Skill", selection: $zeroPlayerOneDifficulty) {
+                                ForEach(AIDifficulty.allCases) { difficulty in
+                                    Text(difficulty.title).tag(difficulty)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .onChange(of: zeroPlayerOneDifficulty) { _, _ in
+                                restartAIThinkingForUpdatedSettingsIfNeeded()
+                            }
+
+                            Text(zeroPlayerOneDifficulty.description)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
 
-                        Text(difficulty.description)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        Section("Player 2 Difficulty") {
+                            Picker("Player 2 Skill", selection: $zeroPlayerTwoDifficulty) {
+                                ForEach(AIDifficulty.allCases) { difficulty in
+                                    Text(difficulty.title).tag(difficulty)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .onChange(of: zeroPlayerTwoDifficulty) { _, _ in
+                                restartAIThinkingForUpdatedSettingsIfNeeded()
+                            }
+
+                            Text(zeroPlayerTwoDifficulty.description)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     Section("Display") {
-                        Toggle("Show Numbers", isOn: $singlePlayerShowNumberLabels)
+                        Toggle(
+                            "Show Numbers",
+                            isOn: gameMode == .singlePlayer ? $singlePlayerShowNumberLabels : $zeroPlayerShowNumberLabels
+                        )
 
                         Text("Shows the stone counts in each pit and store.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
 
-                    Section("Undo") {
-                        Toggle("Show Undo Button", isOn: $isSinglePlayerUndoButtonEnabled)
-                            .onChange(of: isSinglePlayerUndoButtonEnabled) { _, newValue in
-                                if !newValue {
-                                    undoHistory.removeAll()
+                    if gameMode == .singlePlayer {
+                        Section("Undo") {
+                            Toggle("Show Undo Button", isOn: $isSinglePlayerUndoButtonEnabled)
+                                .onChange(of: isSinglePlayerUndoButtonEnabled) { _, newValue in
+                                    if !newValue {
+                                        undoHistory.removeAll()
+                                    }
                                 }
-                            }
 
-                        Text("Undo cancels AI thinking and rolls back the last player move, or rolls back the last player move plus the AI response.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            Text("Undo cancels AI thinking and rolls back the last player move, or rolls back the last player move plus the AI response.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
-                    if difficulty == .impossible {
+                    if shouldShowImpossibleSearchSettings {
                         Section("Advanced") {
                             DisclosureGroup("Impossible Search") {
                                 Picker("Limit by", selection: $impossibleSearchLimitMode) {
@@ -584,6 +723,17 @@ struct ContentView: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    private var shouldShowImpossibleSearchSettings: Bool {
+        switch gameMode {
+        case .singlePlayer:
+            difficulty == .impossible
+        case .zeroPlayer:
+            zeroPlayerOneDifficulty == .impossible || zeroPlayerTwoDifficulty == .impossible
+        case .twoPlayer:
+            false
+        }
     }
 
     private var gameHistorySheet: some View {
@@ -718,7 +868,7 @@ struct ContentView: View {
                 if isThoughtPanelExpanded {
                     ScrollView([.horizontal, .vertical]) {
                         VStack(alignment: .leading, spacing: 4) {
-                            if isAIMovePending && difficulty == .impossible {
+                            if isAIMovePending && currentAIDifficulty == .impossible {
                                 ProgressView(value: impossibleSearchProgress)
                                     .tint(primaryText)
 
@@ -809,7 +959,14 @@ struct ContentView: View {
     }
 
     private func canHumanPlayPit(at index: Int) -> Bool {
-        gameMode == .twoPlayer || game.owner(ofPitAt: index) == .playerOne
+        switch gameMode {
+        case .twoPlayer:
+            return true
+        case .singlePlayer:
+            return game.owner(ofPitAt: index) == .playerOne
+        case .zeroPlayer:
+            return false
+        }
     }
 
     private func recordUndoSnapshotIfNeeded() {
@@ -831,6 +988,8 @@ struct ContentView: View {
             restoreIndex = undoHistory.lastIndex(where: { $0.currentPlayer == .playerOne })
         case .twoPlayer:
             restoreIndex = undoHistory.indices.last
+        case .zeroPlayer:
+            restoreIndex = nil
         }
 
         guard let restoreIndex else { return }
@@ -855,6 +1014,22 @@ struct ContentView: View {
         }
     }
 
+    private func toggleZeroPlayerPlayback() {
+        guard gameMode == .zeroPlayer, !game.isGameOver else { return }
+
+        if isZeroPlayerPaused {
+            isZeroPlayerPaused = false
+            appendAIThought("Autoplay resumed.")
+            Task {
+                await runAIMoveIfNeeded()
+            }
+        } else {
+            isZeroPlayerPaused = true
+            cancelAIThinking()
+            appendAIThought("Autoplay paused.")
+        }
+    }
+
     private func resetForSettingsChange() {
         cancelAIThinking()
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
@@ -869,6 +1044,9 @@ struct ContentView: View {
     private func resetCurrentGame() {
         let shouldStartAIAfterReset = !isAIMovePending
         cancelAIThinking()
+        if gameMode == .zeroPlayer {
+            isZeroPlayerPaused = true
+        }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             resetGame()
             flyingStone = nil
@@ -891,7 +1069,7 @@ struct ContentView: View {
 
     private func switchGameMode(from oldMode: GameMode, to newMode: GameMode) {
         persistStableGameState(for: oldMode)
-        cancelAIThinking(shouldLog: oldMode == .singlePlayer && newMode == .singlePlayer)
+        cancelAIThinking(shouldLog: (oldMode == .singlePlayer || oldMode == .zeroPlayer) && oldMode == newMode)
 
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             restoreSavedGame(for: newMode)
@@ -903,7 +1081,11 @@ struct ContentView: View {
             impossibleSearchProgressText = ""
         }
 
-        if newMode == .singlePlayer {
+        if newMode == .zeroPlayer {
+            isZeroPlayerPaused = true
+        }
+
+        if newMode == .singlePlayer || (newMode == .zeroPlayer && !isZeroPlayerPaused) {
             Task {
                 await runAIMoveIfNeeded()
             }
@@ -913,7 +1095,7 @@ struct ContentView: View {
     private func restoreSavedGameIfNeeded() {
         migrateLegacySavedGameIfNeeded()
         restoreSavedGame(for: gameMode)
-        if gameMode == .singlePlayer {
+        if gameMode == .singlePlayer || (gameMode == .zeroPlayer && !isZeroPlayerPaused) {
             Task {
                 await runAIMoveIfNeeded()
             }
@@ -965,6 +1147,8 @@ struct ContentView: View {
             savedSinglePlayerGameState
         case .twoPlayer:
             savedTwoPlayerGameState
+        case .zeroPlayer:
+            savedZeroPlayerGameState
         }
     }
 
@@ -974,6 +1158,8 @@ struct ContentView: View {
             savedSinglePlayerGameState = data
         case .twoPlayer:
             savedTwoPlayerGameState = data
+        case .zeroPlayer:
+            savedZeroPlayerGameState = data
         }
     }
 
@@ -1035,8 +1221,9 @@ struct ContentView: View {
 
     @MainActor
     private func restartAIThinkingForUpdatedSettingsIfNeeded() {
-        guard gameMode == .singlePlayer,
-              game.currentPlayer == .playerTwo,
+        guard (gameMode == .singlePlayer || gameMode == .zeroPlayer),
+              isAIControlled(game.currentPlayer),
+              !(gameMode == .zeroPlayer && isZeroPlayerPaused),
               !game.isGameOver,
               !isAnimatingMove,
               (isAIMovePending || aiSearchTask != nil) else {
@@ -1085,7 +1272,7 @@ struct ContentView: View {
 
     private func resolvedStartingPlayer(for mode: GameMode? = nil) -> Player {
         let mode = mode ?? gameMode
-        guard mode == .singlePlayer else {
+        guard mode == .singlePlayer || mode == .zeroPlayer else {
             return .playerOne
         }
 
@@ -1234,9 +1421,10 @@ struct ContentView: View {
 
     @MainActor
     private func runAIMoveIfNeeded() async {
-        guard gameMode == .singlePlayer,
-              isSinglePlayerAvailable,
-              game.currentPlayer == .playerTwo,
+        guard (gameMode == .singlePlayer || gameMode == .zeroPlayer),
+              isAIPlayAvailable,
+              isAIControlled(game.currentPlayer),
+              !(gameMode == .zeroPlayer && isZeroPlayerPaused),
               !game.isGameOver,
               !isAnimatingMove,
               !isAIMovePending else {
@@ -1245,15 +1433,17 @@ struct ContentView: View {
 
         aiSearchGeneration += 1
         let searchGeneration = aiSearchGeneration
+        let aiPlayer = game.currentPlayer
+        let aiDifficulty = aiDifficulty(for: aiPlayer)
         isAIMovePending = true
         aiThoughtLog = []
         impossibleSearchProgress = 0
         impossibleSearchProgressText = ""
-        appendAIThought("\(difficulty.title) AI is choosing a move.")
+        appendAIThought("\(displayName(for: aiPlayer)) (\(aiDifficulty.title)) is choosing a move.")
         try? await Task.sleep(for: .milliseconds(350))
         guard searchGeneration == aiSearchGeneration else { return }
 
-        guard let selectedPit = await chooseAIPit() else {
+        guard let selectedPit = await chooseAIPit(for: aiPlayer, difficulty: aiDifficulty) else {
             guard searchGeneration == aiSearchGeneration else { return }
             isAIMovePending = false
             aiSearchTask = nil
@@ -1263,8 +1453,9 @@ struct ContentView: View {
 
         guard searchGeneration == aiSearchGeneration,
               isAIMovePending,
-              gameMode == .singlePlayer,
-              game.currentPlayer == .playerTwo,
+              (gameMode == .singlePlayer || gameMode == .zeroPlayer),
+              !(gameMode == .zeroPlayer && isZeroPlayerPaused),
+              game.currentPlayer == aiPlayer,
               !game.isGameOver else {
             if searchGeneration == aiSearchGeneration {
                 aiSearchTask = nil
@@ -1278,13 +1469,14 @@ struct ContentView: View {
         await animateMove(from: selectedPit)
     }
 
-    private func chooseAIPit() async -> Int? {
-        let legalPits = game.legalPits(for: .playerTwo)
+    private func chooseAIPit(for player: Player, difficulty: AIDifficulty) async -> Int? {
+        let legalPits = game.legalPits(for: player)
         guard !legalPits.isEmpty else { return nil }
 
         if difficulty == .impossible {
             appendAIThought("Starting exact search over legal pits \(legalPits).")
             let pitsSnapshot = game.pits
+            let currentPlayer = player == .playerOne ? 1 : 2
             let limitMode = impossibleSearchLimitMode
             let maxPositions = limitMode == .positions ? impossibleSearchLimit : 100_000_000
             let timeLimit = limitMode == .time ? TimeInterval(impossibleSearchTimeLimit) : nil
@@ -1310,7 +1502,7 @@ struct ContentView: View {
             let searchTask = Task.detached(priority: .userInitiated) {
                 MancalaOptimalSolver.bestMove(
                     pits: pitsSnapshot,
-                    currentPlayer: 2,
+                    currentPlayer: currentPlayer,
                     maxPositions: maxPositions,
                     timeLimit: timeLimit,
                     progress: progress,
@@ -1325,7 +1517,7 @@ struct ContentView: View {
             appendAIThought("Requesting on-device model move.")
             let session = LanguageModelSession()
             let response = try await session.respond(
-                to: aiPrompt(legalPits: legalPits),
+                to: aiPrompt(for: player, difficulty: difficulty, legalPits: legalPits),
                 generating: AIMancalaMove.self
             )
             let selectedPit = response.content.pitIndex
@@ -1343,12 +1535,12 @@ struct ContentView: View {
         return legalPits.first
     }
 
-    private func aiPrompt(legalPits: [Int]) -> String {
+    private func aiPrompt(for player: Player, difficulty: AIDifficulty, legalPits: [Int]) -> String {
         """
-        You are playing Mancala as \(displayName(for: .playerTwo)).
+        You are playing Mancala as \(displayName(for: player)).
         Board array indices 0...5 are \(displayName(for: .playerOne)) pits, index 6 is \(displayName(for: .playerOne)) store, indices 7...12 are \(displayName(for: .playerTwo)) pits, and index 13 is \(displayName(for: .playerTwo)) store.
         Current board: \(game.pits)
-        Legal \(displayName(for: .playerTwo)) pit indices: \(legalPits)
+        Legal \(displayName(for: player)) pit indices: \(legalPits)
         \(displayName(for: .playerOne)) store: \(game.storeCount(for: .playerOne))
         \(displayName(for: .playerTwo)) store: \(game.storeCount(for: .playerTwo))
         Difficulty: \(difficulty.title)

@@ -3,6 +3,7 @@ import SwiftUI
 enum GameMode: String, CaseIterable, Identifiable {
     case twoPlayer
     case singlePlayer
+    case zeroPlayer
 
     var id: String { rawValue }
 }
