@@ -578,18 +578,25 @@ struct ContentView: View {
         searched: Int,
         maximum: Int,
         elapsed: TimeInterval,
-        timeLimit: TimeInterval?
+        timeLimit: TimeInterval?,
+        completedDepth: Int,
+        cacheEntries: Int,
+        bestMove: Int?,
+        isExact: Bool
     ) {
+        let bestMoveText = bestMove.map { "best \($0)" } ?? "best --"
+        let solvedText = isExact ? "exact" : "depth \(completedDepth)"
+
         if let timeLimit {
             let remaining = max(0, timeLimit - elapsed)
             impossibleSearchProgress = min(elapsed / timeLimit, 1)
-            impossibleSearchProgressText = "\(searched.formatted()) positions • \(remaining.formatted(.number.precision(.fractionLength(1))))s remaining"
+            impossibleSearchProgressText = "\(solvedText) • \(searched.formatted()) nodes • \(cacheEntries.formatted()) cached • \(bestMoveText) • \(remaining.formatted(.number.precision(.fractionLength(1))))s left"
         } else {
             let rate = elapsed > 0 ? Double(searched) / elapsed : 0
             let remainingPositions = max(0, maximum - searched)
             let eta = rate > 0 ? Double(remainingPositions) / rate : 0
             impossibleSearchProgress = min(Double(searched) / Double(maximum), 1)
-            impossibleSearchProgressText = "\(searched.formatted()) / \(maximum.formatted()) positions • ETA \(eta.formatted(.number.precision(.fractionLength(1))))s"
+            impossibleSearchProgressText = "\(solvedText) • \(searched.formatted()) / \(maximum.formatted()) nodes • \(cacheEntries.formatted()) cached • \(bestMoveText) • ETA \(eta.formatted(.number.precision(.fractionLength(1))))s"
         }
     }
 
@@ -792,13 +799,17 @@ struct ContentView: View {
                     appendAIThought(entry)
                 }
             }
-            let progressUpdate: @Sendable (Int, Int, TimeInterval, TimeInterval?) -> Void = { searched, maximum, elapsed, timeLimit in
+            let progressUpdate: @Sendable (MancalaOptimalSolver.SearchProgress) -> Void = { searchProgress in
                 Task { @MainActor in
                     updateImpossibleProgress(
-                        searched: searched,
-                        maximum: maximum,
-                        elapsed: elapsed,
-                        timeLimit: timeLimit
+                        searched: searchProgress.searched,
+                        maximum: searchProgress.maximum,
+                        elapsed: searchProgress.elapsed,
+                        timeLimit: searchProgress.timeLimit,
+                        completedDepth: searchProgress.completedDepth,
+                        cacheEntries: searchProgress.cacheEntries,
+                        bestMove: searchProgress.bestMove,
+                        isExact: searchProgress.isExact
                     )
                 }
             }
@@ -1016,7 +1027,7 @@ private enum AIDifficulty: String, CaseIterable, Identifiable {
         case .hard:
             "Plays more carefully for store advantage and safer positions."
         case .impossible:
-            "Solves the position and always chooses an optimal move."
+            "Uses deterministic search with pruning, exact endgame solving, and the selected search budget."
         }
     }
 
@@ -1250,12 +1261,26 @@ private struct MancalaGame {
 }
 
 private struct MancalaOptimalSolver {
+    struct SearchProgress: Sendable {
+        let searched: Int
+        let maximum: Int
+        let elapsed: TimeInterval
+        let timeLimit: TimeInterval?
+        let completedDepth: Int
+        let cacheEntries: Int
+        let bestMove: Int?
+        let isExact: Bool
+    }
+
     private struct SearchStats {
         var nodes = 0
-        var memoHits = 0
+        var cacheHits = 0
         var lastReportedNodeCount = 0
         var reachedLimit = false
         var reachedTimeLimit = false
+        var completedDepth = 0
+        var bestMove: Int?
+        var exact = false
 
         nonisolated init() {}
     }
@@ -1268,16 +1293,35 @@ private struct MancalaOptimalSolver {
             self.pits = pits
             self.currentPlayer = currentPlayer
         }
-
-        nonisolated var cacheKey: String {
-            "\(currentPlayer):" + pits.map(String.init).joined(separator: ",")
-        }
     }
 
-    private struct Result {
+    private struct SearchResult {
         var score: Int
         var move: Int?
+        var exact: Bool
     }
+
+    private struct TranspositionEntry {
+        enum Bound {
+            case exact
+            case lower
+            case upper
+        }
+
+        let depth: Int
+        let score: Int
+        let move: Int?
+        let bound: Bound
+    }
+
+    private enum SearchAbort: Error {
+        case cancelled
+        case budgetReached
+    }
+
+    nonisolated private static let winScore = 10_000
+    nonisolated private static let exactEndgameStoneThreshold = 16
+    nonisolated private static let maximumSearchDepth = 80
 
     nonisolated static func bestMove(
         pits: [Int],
@@ -1285,140 +1329,389 @@ private struct MancalaOptimalSolver {
         maxPositions: Int,
         timeLimit: TimeInterval?,
         progress: @escaping @Sendable (String) -> Void,
-        progressUpdate: @escaping @Sendable (Int, Int, TimeInterval, TimeInterval?) -> Void
+        progressUpdate: @escaping @Sendable (SearchProgress) -> Void
     ) -> Int? {
-        var memo: [String: Result] = [:]
+        var table: [[Int]: TranspositionEntry] = [:]
         var stats = SearchStats()
         let state = State(pits: pits, currentPlayer: currentPlayer)
         let maxPositions = max(1, maxPositions)
+        let tableLimit = min(max(20_000, maxPositions / 4), 1_000_000)
         let timeLimit = timeLimit.map { max(0.1, $0) }
         let startTime = Date()
-        let rootMoves = legalMoves(for: state.currentPlayer, pits: state.pits).count
-        progress("Legal first moves to analyze: \(rootMoves).")
+        let rootMoves = orderedMoves(for: state, preferredMove: nil)
+        var bestMove = rootMoves.first
+        var bestScore = Int.min
+        var exact = false
+
+        progress("Legal first moves to analyze: \(rootMoves.count).")
+        progress("Using iterative deepening with alpha-beta pruning and ordered moves.")
         if let timeLimit {
-            progress("Reachable positions are not precomputed; search stops after \(Int(timeLimit))s or safety cap \(maxPositions.formatted()).")
+            progress("Budget: \(Int(timeLimit))s, with safety cap \(maxPositions.formatted()) positions.")
         } else {
-            progress("Reachable positions are not precomputed; search stops at \(maxPositions.formatted()) positions.")
+            progress("Budget: \(maxPositions.formatted()) positions.")
         }
-        let result = solve(
-            state,
-            memo: &memo,
-            stats: &stats,
-            maxPositions: maxPositions,
-            startTime: startTime,
-            timeLimit: timeLimit,
-            progress: progress,
-            progressUpdate: progressUpdate
-        )
-        if Task.isCancelled {
-            progress("Search cancelled after \(stats.nodes) positions.")
+
+        if rootMoves.isEmpty {
             return nil
         }
 
-        let elapsed = Date().timeIntervalSince(startTime)
-        progressUpdate(stats.nodes, maxPositions, elapsed, timeLimit)
-        if stats.reachedTimeLimit {
-            progress("Search timed out after \(elapsed.formatted(.number.precision(.fractionLength(1))))s; using best bounded result.")
-        } else if stats.reachedLimit {
-            progress("Search capped at \(stats.nodes) positions; using best bounded result.")
-        } else {
-            progress("Search complete: \(stats.nodes) positions, \(memo.count) cached states.")
+        let depthLimit = nonStoreStoneCount(state.pits) <= exactEndgameStoneThreshold ? maximumSearchDepth : budgetDepthLimit(maxPositions: maxPositions, timeLimit: timeLimit)
+
+        for depth in 1...depthLimit {
+            do {
+                let result = try rootSearch(
+                    state,
+                    depth: depth,
+                    preferredMove: bestMove,
+                    table: &table,
+                    tableLimit: tableLimit,
+                    stats: &stats,
+                    maxPositions: maxPositions,
+                    startTime: startTime,
+                    timeLimit: timeLimit,
+                    progress: progress,
+                    progressUpdate: progressUpdate
+                )
+                bestMove = result.move ?? bestMove
+                bestScore = result.score
+                exact = result.exact
+                stats.completedDepth = depth
+                stats.bestMove = bestMove
+                stats.exact = exact
+
+                progressUpdate(currentProgress(stats: stats, maximum: maxPositions, startTime: startTime, timeLimit: timeLimit, cacheEntries: table.count))
+                progress("Depth \(depth) complete: best pit \(bestMove.map(String.init) ?? "--"), score \(bestScore), cached \(table.count).")
+
+                if exact {
+                    progress("Exact result found after \(stats.nodes.formatted()) positions.")
+                    break
+                }
+            } catch SearchAbort.cancelled {
+                progress("Search cancelled after \(stats.nodes.formatted()) positions.")
+                return nil
+            } catch SearchAbort.budgetReached {
+                break
+            } catch {
+                break
+            }
         }
-        return result?.move
+
+        let elapsed = Date().timeIntervalSince(startTime)
+        progressUpdate(currentProgress(stats: stats, maximum: maxPositions, startTime: startTime, timeLimit: timeLimit, cacheEntries: table.count))
+
+        if stats.reachedTimeLimit {
+            progress("Time budget reached after \(elapsed.formatted(.number.precision(.fractionLength(1))))s; using depth \(stats.completedDepth) result.")
+        } else if stats.reachedLimit {
+            progress("Position budget reached at \(stats.nodes.formatted()) nodes; using depth \(stats.completedDepth) result.")
+        } else if !exact {
+            progress("Search stopped at depth \(stats.completedDepth); using best completed result.")
+        }
+
+        return bestMove
     }
 
-    nonisolated private static func solve(
+    nonisolated private static func rootSearch(
         _ state: State,
-        memo: inout [String: Result],
+        depth: Int,
+        preferredMove: Int?,
+        table: inout [[Int]: TranspositionEntry],
+        tableLimit: Int,
         stats: inout SearchStats,
         maxPositions: Int,
         startTime: Date,
         timeLimit: TimeInterval?,
         progress: @escaping @Sendable (String) -> Void,
-        progressUpdate: @escaping @Sendable (Int, Int, TimeInterval, TimeInterval?) -> Void
-    ) -> Result? {
-        if Task.isCancelled {
-            return nil
-        }
-
-        if stats.nodes >= maxPositions {
-            stats.reachedLimit = true
-            return Result(score: evaluate(state.pits), move: nil)
-        }
-
-        stats.nodes += 1
-        if let timeLimit, stats.nodes == 1 || stats.nodes.isMultiple(of: 2_048) {
-            let elapsed = Date().timeIntervalSince(startTime)
-            if elapsed >= timeLimit {
-                stats.reachedTimeLimit = true
-                return Result(score: evaluate(state.pits), move: nil)
-            }
-        }
-
-        if stats.nodes - stats.lastReportedNodeCount >= 10_000 {
-            stats.lastReportedNodeCount = stats.nodes
-            progress("Searched \(stats.nodes) positions, cached \(memo.count).")
-            progressUpdate(stats.nodes, maxPositions, Date().timeIntervalSince(startTime), timeLimit)
-        }
-
-        let cacheKey = state.cacheKey
-        if let cached = memo[cacheKey] {
-            stats.memoHits += 1
-            return cached
-        }
-
-        if isGameOver(state.pits) {
-            let result = Result(score: state.pits[13] - state.pits[6], move: nil)
-            memo[cacheKey] = result
-            return result
-        }
-
-        let moves = legalMoves(for: state.currentPlayer, pits: state.pits)
-        guard !moves.isEmpty else {
-            let result = Result(score: state.pits[13] - state.pits[6], move: nil)
-            memo[cacheKey] = result
-            return result
-        }
-
+        progressUpdate: @escaping @Sendable (SearchProgress) -> Void
+    ) throws -> SearchResult {
+        let moves = orderedMoves(for: state, preferredMove: preferredMove)
+        let searchDepth = nonStoreStoneCount(state.pits) <= exactEndgameStoneThreshold ? maximumSearchDepth : depth
         var bestMove: Int?
         var bestScore = state.currentPlayer == 2 ? Int.min : Int.max
+        var alpha = Int.min + 1
+        var beta = Int.max - 1
+        var allExact = true
 
         for move in moves {
+            try checkBudget(stats: &stats, maxPositions: maxPositions, startTime: startTime, timeLimit: timeLimit)
             let nextState = play(move, in: state)
-            guard let childResult = solve(
+            let result = try alphaBeta(
                 nextState,
-                memo: &memo,
+                depth: searchDepth - 1,
+                alpha: alpha,
+                beta: beta,
+                table: &table,
+                tableLimit: tableLimit,
                 stats: &stats,
                 maxPositions: maxPositions,
                 startTime: startTime,
                 timeLimit: timeLimit,
                 progress: progress,
                 progressUpdate: progressUpdate
-            ) else {
-                return nil
-            }
-            let score = childResult.score
+            )
+            allExact = allExact && result.exact
 
             if state.currentPlayer == 2 {
-                if score > bestScore {
-                    bestScore = score
+                if result.score > bestScore {
+                    bestScore = result.score
                     bestMove = move
                 }
-            } else if score < bestScore {
-                bestScore = score
-                bestMove = move
+                alpha = max(alpha, bestScore)
+            } else {
+                if result.score < bestScore {
+                    bestScore = result.score
+                    bestMove = move
+                }
+                beta = min(beta, bestScore)
             }
         }
 
-        let result = Result(score: bestScore, move: bestMove)
-        memo[cacheKey] = result
-        return result
+        return SearchResult(score: bestScore, move: bestMove, exact: allExact)
+    }
+
+    nonisolated private static func alphaBeta(
+        _ state: State,
+        depth: Int,
+        alpha: Int,
+        beta: Int,
+        table: inout [[Int]: TranspositionEntry],
+        tableLimit: Int,
+        stats: inout SearchStats,
+        maxPositions: Int,
+        startTime: Date,
+        timeLimit: TimeInterval?,
+        progress: @escaping @Sendable (String) -> Void,
+        progressUpdate: @escaping @Sendable (SearchProgress) -> Void
+    ) throws -> SearchResult {
+        try checkBudget(stats: &stats, maxPositions: maxPositions, startTime: startTime, timeLimit: timeLimit)
+        reportProgressIfNeeded(stats: &stats, maximum: maxPositions, startTime: startTime, timeLimit: timeLimit, cacheEntries: table.count, progress: progress, progressUpdate: progressUpdate)
+
+        if isGameOver(state.pits) {
+            return SearchResult(score: terminalScore(state.pits), move: nil, exact: true)
+        }
+
+        if depth <= 0 {
+            return SearchResult(score: evaluate(state.pits), move: nil, exact: false)
+        }
+
+        let originalAlpha = alpha
+        let originalBeta = beta
+        var alpha = alpha
+        var beta = beta
+        let cacheKey = cacheKey(for: state)
+
+        if let cached = table[cacheKey], cached.depth >= depth {
+            stats.cacheHits += 1
+            switch cached.bound {
+            case .exact:
+                return SearchResult(score: cached.score, move: cached.move, exact: true)
+            case .lower:
+                alpha = max(alpha, cached.score)
+            case .upper:
+                beta = min(beta, cached.score)
+            }
+
+            if alpha >= beta {
+                let cachedExact: Bool
+                switch cached.bound {
+                case .exact:
+                    cachedExact = true
+                case .lower, .upper:
+                    cachedExact = false
+                }
+                return SearchResult(score: cached.score, move: cached.move, exact: cachedExact)
+            }
+        }
+
+        let cachedMove = table[cacheKey]?.move
+        let moves = orderedMoves(for: state, preferredMove: cachedMove)
+        guard !moves.isEmpty else {
+            return SearchResult(score: terminalScore(state.pits), move: nil, exact: true)
+        }
+
+        var bestMove: Int?
+        var bestScore = state.currentPlayer == 2 ? Int.min : Int.max
+        var allExact = true
+        var prunedBranch = false
+
+        for move in moves {
+            let nextState = play(move, in: state)
+            let child = try alphaBeta(
+                nextState,
+                depth: depth - 1,
+                alpha: alpha,
+                beta: beta,
+                table: &table,
+                tableLimit: tableLimit,
+                stats: &stats,
+                maxPositions: maxPositions,
+                startTime: startTime,
+                timeLimit: timeLimit,
+                progress: progress,
+                progressUpdate: progressUpdate
+            )
+            allExact = allExact && child.exact
+
+            if state.currentPlayer == 2 {
+                if child.score > bestScore {
+                    bestScore = child.score
+                    bestMove = move
+                }
+                alpha = max(alpha, bestScore)
+            } else {
+                if child.score < bestScore {
+                    bestScore = child.score
+                    bestMove = move
+                }
+                beta = min(beta, bestScore)
+            }
+
+            if alpha >= beta {
+                prunedBranch = true
+                break
+            }
+        }
+
+        let isExactResult = allExact && !prunedBranch
+        let bound: TranspositionEntry.Bound
+        if isExactResult {
+            bound = .exact
+        } else if bestScore <= originalAlpha {
+            bound = .upper
+        } else if bestScore >= originalBeta {
+            bound = .lower
+        } else {
+            bound = .exact
+        }
+
+        if table.count < tableLimit || depth >= (table[cacheKey]?.depth ?? -1) {
+            table[cacheKey] = TranspositionEntry(depth: depth, score: bestScore, move: bestMove, bound: bound)
+        }
+
+        return SearchResult(score: bestScore, move: bestMove, exact: isExactResult)
+    }
+
+    nonisolated private static func checkBudget(
+        stats: inout SearchStats,
+        maxPositions: Int,
+        startTime: Date,
+        timeLimit: TimeInterval?
+    ) throws {
+        if Task.isCancelled {
+            throw SearchAbort.cancelled
+        }
+
+        if stats.nodes >= maxPositions {
+            stats.reachedLimit = true
+            throw SearchAbort.budgetReached
+        }
+
+        stats.nodes += 1
+
+        if let timeLimit, stats.nodes == 1 || stats.nodes.isMultiple(of: 2_048) {
+            if Date().timeIntervalSince(startTime) >= timeLimit {
+                stats.reachedTimeLimit = true
+                throw SearchAbort.budgetReached
+            }
+        }
+    }
+
+    nonisolated private static func reportProgressIfNeeded(
+        stats: inout SearchStats,
+        maximum: Int,
+        startTime: Date,
+        timeLimit: TimeInterval?,
+        cacheEntries: Int,
+        progress: @escaping @Sendable (String) -> Void,
+        progressUpdate: @escaping @Sendable (SearchProgress) -> Void
+    ) {
+        guard stats.nodes - stats.lastReportedNodeCount >= 25_000 else { return }
+        stats.lastReportedNodeCount = stats.nodes
+        progress("Depth \(stats.completedDepth + 1): searched \(stats.nodes.formatted()) nodes, cached \(cacheEntries.formatted()), hits \(stats.cacheHits.formatted()).")
+        progressUpdate(currentProgress(stats: stats, maximum: maximum, startTime: startTime, timeLimit: timeLimit, cacheEntries: cacheEntries))
+    }
+
+    nonisolated private static func currentProgress(
+        stats: SearchStats,
+        maximum: Int,
+        startTime: Date,
+        timeLimit: TimeInterval?,
+        cacheEntries: Int
+    ) -> SearchProgress {
+        SearchProgress(
+            searched: stats.nodes,
+            maximum: maximum,
+            elapsed: Date().timeIntervalSince(startTime),
+            timeLimit: timeLimit,
+            completedDepth: stats.completedDepth,
+            cacheEntries: cacheEntries,
+            bestMove: stats.bestMove,
+            isExact: stats.exact
+        )
+    }
+
+    nonisolated private static func budgetDepthLimit(maxPositions: Int, timeLimit: TimeInterval?) -> Int {
+        if let timeLimit {
+            switch timeLimit {
+            case ..<3:
+                return 7
+            case ..<8:
+                return 9
+            case ..<20:
+                return 11
+            default:
+                return 13
+            }
+        }
+
+        switch maxPositions {
+        case ..<250_000:
+            return 7
+        case ..<1_000_000:
+            return 9
+        case ..<10_000_000:
+            return 11
+        default:
+            return 13
+        }
+    }
+
+    nonisolated private static func orderedMoves(for state: State, preferredMove: Int?) -> [Int] {
+        legalMoves(for: state.currentPlayer, pits: state.pits)
+            .sorted { left, right in
+                if left == preferredMove { return true }
+                if right == preferredMove { return false }
+                let leftScore = moveOrderingScore(left, in: state)
+                let rightScore = moveOrderingScore(right, in: state)
+                return state.currentPlayer == 2 ? leftScore > rightScore : leftScore < rightScore
+            }
+    }
+
+    nonisolated private static func moveOrderingScore(_ move: Int, in state: State) -> Int {
+        let beforeStore = state.pits[storeIndex(for: state.currentPlayer)]
+        let nextState = play(move, in: state)
+        let afterStore = nextState.pits[storeIndex(for: state.currentPlayer)]
+        let extraTurnBonus = nextState.currentPlayer == state.currentPlayer && !isGameOver(nextState.pits) ? 500 : 0
+        let storeGain = (afterStore - beforeStore) * 30
+        let evaluation = evaluate(nextState.pits)
+        return extraTurnBonus + storeGain + evaluation
     }
 
     nonisolated private static func evaluate(_ pits: [Int]) -> Int {
         let playerOneSide = playablePits(for: 1).reduce(0) { $0 + pits[$1] }
         let playerTwoSide = playablePits(for: 2).reduce(0) { $0 + pits[$1] }
-        return (pits[13] - pits[6]) + (playerTwoSide - playerOneSide)
+        let mobility = legalMoves(for: 2, pits: pits).count - legalMoves(for: 1, pits: pits).count
+        return ((pits[13] - pits[6]) * 120) + ((playerTwoSide - playerOneSide) * 8) + (mobility * 3)
+    }
+
+    nonisolated private static func terminalScore(_ pits: [Int]) -> Int {
+        let difference = pits[13] - pits[6]
+        if difference > 0 {
+            return winScore + difference
+        }
+        if difference < 0 {
+            return -winScore + difference
+        }
+        return 0
     }
 
     nonisolated private static func play(_ selectedIndex: Int, in state: State) -> State {
@@ -1484,6 +1777,14 @@ private struct MancalaOptimalSolver {
 
     nonisolated private static func sideIsEmpty(_ player: Int, pits: [Int]) -> Bool {
         playablePits(for: player).allSatisfy { pits[$0] == 0 }
+    }
+
+    nonisolated private static func nonStoreStoneCount(_ pits: [Int]) -> Int {
+        playablePits(for: 1).reduce(0) { $0 + pits[$1] } + playablePits(for: 2).reduce(0) { $0 + pits[$1] }
+    }
+
+    nonisolated private static func cacheKey(for state: State) -> [Int] {
+        state.pits + [state.currentPlayer]
     }
 
     nonisolated private static func collectRemainingStones(in pits: inout [Int]) {
