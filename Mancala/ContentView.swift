@@ -11,6 +11,9 @@ import FoundationModels
 }
 
 struct ContentView: View {
+    private static let defaultImpossibleSearchLimit = 10_000_000
+    private static let defaultImpossibleTimeLimit = 10
+
     @Environment(\.colorScheme) private var colorScheme
     @State private var game = MancalaGame()
     @State private var cellFrames: [Int: CGRect] = [:]
@@ -25,6 +28,11 @@ struct ContentView: View {
     @State private var aiSearchTask: Task<Int?, Never>?
     @State private var isThoughtPanelExpanded = false
     @State private var aiThoughtLog: [String] = []
+    @State private var impossibleSearchLimitMode = ImpossibleSearchLimitMode.positions
+    @State private var impossibleSearchLimit = ContentView.defaultImpossibleSearchLimit
+    @State private var impossibleSearchTimeLimit = ContentView.defaultImpossibleTimeLimit
+    @State private var impossibleSearchProgress = 0.0
+    @State private var impossibleSearchProgressText = ""
 
     private let model = SystemLanguageModel.default
 
@@ -145,8 +153,8 @@ struct ContentView: View {
 
     private func gameContent(isPortrait: Bool, availableHeight: CGFloat) -> some View {
         let contentSpacing: CGFloat = isPortrait ? 10 : 18
-        let headerHeight: CGFloat = isPortrait ? 76 : (isThoughtPanelExpanded ? 148 : 64)
-        let statusHeight: CGFloat = isPortrait ? (isThoughtPanelExpanded ? 148 : 46) : 0
+        let headerHeight: CGFloat = isPortrait ? 76 : (isThoughtPanelExpanded ? 172 : 64)
+        let statusHeight: CGFloat = isPortrait ? (isThoughtPanelExpanded ? 172 : 46) : 0
         let visibleStatusSpacing = isPortrait ? contentSpacing : 0
         let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing)
         let portraitStoreHeight = min(54, max(38, boardHeight * 0.10))
@@ -302,6 +310,37 @@ struct ContentView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+
+                    if difficulty == .impossible {
+                        Section("Impossible Search") {
+                            Picker("Limit by", selection: $impossibleSearchLimitMode) {
+                                ForEach(ImpossibleSearchLimitMode.allCases) { mode in
+                                    Text(mode.title).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            if impossibleSearchLimitMode == .positions {
+                                Stepper(
+                                    "Max positions: \(impossibleSearchLimit.formatted())",
+                                    value: $impossibleSearchLimit,
+                                    in: 100_000...100_000_000,
+                                    step: 100_000
+                                )
+                            } else {
+                                Stepper(
+                                    "Max time: \(impossibleSearchTimeLimit)s",
+                                    value: $impossibleSearchTimeLimit,
+                                    in: 1...120,
+                                    step: 1
+                                )
+                            }
+
+                            Text(impossibleSearchLimitMode.description)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
             .navigationTitle("Settings")
@@ -409,6 +448,17 @@ struct ContentView: View {
 
                 if isThoughtPanelExpanded {
                     VStack(alignment: .leading, spacing: 4) {
+                        if isAIMovePending && difficulty == .impossible {
+                            ProgressView(value: impossibleSearchProgress)
+                                .tint(primaryText)
+
+                            Text(impossibleSearchProgressText)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(secondaryText)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
                         ForEach(displayedThoughtLog, id: \.self) { entry in
                             Text(entry)
                                 .font(.caption2.monospaced())
@@ -473,6 +523,7 @@ struct ContentView: View {
             .padding(.vertical, verticalInset)
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: minHeight)
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .glassEffect(.regular.tint(isPlayable ? playableTint : pitTint).interactive(isPlayable), in: .rect(cornerRadius: 20))
             .overlay {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -480,6 +531,7 @@ struct ContentView: View {
             }
         }
         .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .disabled(!isPlayable)
         .recordCellFrame(id: index)
         .accessibilityLabel("\(owner.name) pit with \(game.pits[index]) stones")
@@ -508,6 +560,8 @@ struct ContentView: View {
         aiSearchTask?.cancel()
         aiSearchTask = nil
         isAIMovePending = false
+        impossibleSearchProgress = 0
+        impossibleSearchProgressText = ""
         if wasThinking {
             appendAIThought("Cancelled AI search.")
         }
@@ -517,6 +571,25 @@ struct ContentView: View {
         aiThoughtLog.append(entry)
         if aiThoughtLog.count > 40 {
             aiThoughtLog.removeFirst(aiThoughtLog.count - 40)
+        }
+    }
+
+    private func updateImpossibleProgress(
+        searched: Int,
+        maximum: Int,
+        elapsed: TimeInterval,
+        timeLimit: TimeInterval?
+    ) {
+        if let timeLimit {
+            let remaining = max(0, timeLimit - elapsed)
+            impossibleSearchProgress = min(elapsed / timeLimit, 1)
+            impossibleSearchProgressText = "\(searched.formatted()) positions • \(remaining.formatted(.number.precision(.fractionLength(1))))s remaining"
+        } else {
+            let rate = elapsed > 0 ? Double(searched) / elapsed : 0
+            let remainingPositions = max(0, maximum - searched)
+            let eta = rate > 0 ? Double(remainingPositions) / rate : 0
+            impossibleSearchProgress = min(Double(searched) / Double(maximum), 1)
+            impossibleSearchProgressText = "\(searched.formatted()) / \(maximum.formatted()) positions • ETA \(eta.formatted(.number.precision(.fractionLength(1))))s"
         }
     }
 
@@ -678,6 +751,8 @@ struct ContentView: View {
 
         isAIMovePending = true
         aiThoughtLog = []
+        impossibleSearchProgress = 0
+        impossibleSearchProgressText = ""
         appendAIThought("\(difficulty.title) AI is choosing a move.")
         try? await Task.sleep(for: .milliseconds(350))
 
@@ -709,13 +784,33 @@ struct ContentView: View {
         if difficulty == .impossible {
             appendAIThought("Starting exact search over legal pits \(legalPits).")
             let pitsSnapshot = game.pits
+            let limitMode = impossibleSearchLimitMode
+            let maxPositions = limitMode == .positions ? impossibleSearchLimit : 100_000_000
+            let timeLimit = limitMode == .time ? TimeInterval(impossibleSearchTimeLimit) : nil
             let progress: @Sendable (String) -> Void = { entry in
                 Task { @MainActor in
                     appendAIThought(entry)
                 }
             }
+            let progressUpdate: @Sendable (Int, Int, TimeInterval, TimeInterval?) -> Void = { searched, maximum, elapsed, timeLimit in
+                Task { @MainActor in
+                    updateImpossibleProgress(
+                        searched: searched,
+                        maximum: maximum,
+                        elapsed: elapsed,
+                        timeLimit: timeLimit
+                    )
+                }
+            }
             let searchTask = Task.detached(priority: .userInitiated) {
-                MancalaOptimalSolver.bestMove(pits: pitsSnapshot, currentPlayer: 2, progress: progress)
+                MancalaOptimalSolver.bestMove(
+                    pits: pitsSnapshot,
+                    currentPlayer: 2,
+                    maxPositions: maxPositions,
+                    timeLimit: timeLimit,
+                    progress: progress,
+                    progressUpdate: progressUpdate
+                )
             }
             aiSearchTask = searchTask
             return await searchTask.value ?? legalPits.first
@@ -868,6 +963,29 @@ private enum StartingPlayer: String, CaseIterable, Identifiable {
             "The AI opens as Player 2."
         case .random:
             "A starting side is chosen each time the game resets."
+        }
+    }
+}
+
+private enum ImpossibleSearchLimitMode: String, CaseIterable, Identifiable {
+    case positions
+    case time
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .positions: "Positions"
+        case .time: "Time"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .positions:
+            "Search stops after the selected number of positions. The progress bar estimates time remaining."
+        case .time:
+            "Search stops after the selected time. A hard safety cap of 100,000,000 positions still applies."
         }
     }
 }
@@ -1136,6 +1254,8 @@ private struct MancalaOptimalSolver {
         var nodes = 0
         var memoHits = 0
         var lastReportedNodeCount = 0
+        var reachedLimit = false
+        var reachedTimeLimit = false
 
         nonisolated init() {}
     }
@@ -1159,18 +1279,51 @@ private struct MancalaOptimalSolver {
         var move: Int?
     }
 
-    nonisolated static func bestMove(pits: [Int], currentPlayer: Int, progress: @escaping @Sendable (String) -> Void) -> Int? {
+    nonisolated static func bestMove(
+        pits: [Int],
+        currentPlayer: Int,
+        maxPositions: Int,
+        timeLimit: TimeInterval?,
+        progress: @escaping @Sendable (String) -> Void,
+        progressUpdate: @escaping @Sendable (Int, Int, TimeInterval, TimeInterval?) -> Void
+    ) -> Int? {
         var memo: [String: Result] = [:]
         var stats = SearchStats()
         let state = State(pits: pits, currentPlayer: currentPlayer)
-        progress("Checking \(legalMoves(for: state.currentPlayer, pits: state.pits).count) legal root moves.")
-        let result = solve(state, memo: &memo, stats: &stats, progress: progress)
+        let maxPositions = max(1, maxPositions)
+        let timeLimit = timeLimit.map { max(0.1, $0) }
+        let startTime = Date()
+        let rootMoves = legalMoves(for: state.currentPlayer, pits: state.pits).count
+        progress("Legal first moves to analyze: \(rootMoves).")
+        if let timeLimit {
+            progress("Reachable positions are not precomputed; search stops after \(Int(timeLimit))s or safety cap \(maxPositions.formatted()).")
+        } else {
+            progress("Reachable positions are not precomputed; search stops at \(maxPositions.formatted()) positions.")
+        }
+        let result = solve(
+            state,
+            memo: &memo,
+            stats: &stats,
+            maxPositions: maxPositions,
+            startTime: startTime,
+            timeLimit: timeLimit,
+            progress: progress,
+            progressUpdate: progressUpdate
+        )
         if Task.isCancelled {
             progress("Search cancelled after \(stats.nodes) positions.")
             return nil
         }
 
-        progress("Search complete: \(stats.nodes) positions, \(memo.count) cached states.")
+        let elapsed = Date().timeIntervalSince(startTime)
+        progressUpdate(stats.nodes, maxPositions, elapsed, timeLimit)
+        if stats.reachedTimeLimit {
+            progress("Search timed out after \(elapsed.formatted(.number.precision(.fractionLength(1))))s; using best bounded result.")
+        } else if stats.reachedLimit {
+            progress("Search capped at \(stats.nodes) positions; using best bounded result.")
+        } else {
+            progress("Search complete: \(stats.nodes) positions, \(memo.count) cached states.")
+        }
         return result?.move
     }
 
@@ -1178,16 +1331,34 @@ private struct MancalaOptimalSolver {
         _ state: State,
         memo: inout [String: Result],
         stats: inout SearchStats,
-        progress: @escaping @Sendable (String) -> Void
+        maxPositions: Int,
+        startTime: Date,
+        timeLimit: TimeInterval?,
+        progress: @escaping @Sendable (String) -> Void,
+        progressUpdate: @escaping @Sendable (Int, Int, TimeInterval, TimeInterval?) -> Void
     ) -> Result? {
         if Task.isCancelled {
             return nil
         }
 
+        if stats.nodes >= maxPositions {
+            stats.reachedLimit = true
+            return Result(score: evaluate(state.pits), move: nil)
+        }
+
         stats.nodes += 1
+        if let timeLimit, stats.nodes == 1 || stats.nodes.isMultiple(of: 2_048) {
+            let elapsed = Date().timeIntervalSince(startTime)
+            if elapsed >= timeLimit {
+                stats.reachedTimeLimit = true
+                return Result(score: evaluate(state.pits), move: nil)
+            }
+        }
+
         if stats.nodes - stats.lastReportedNodeCount >= 10_000 {
             stats.lastReportedNodeCount = stats.nodes
             progress("Searched \(stats.nodes) positions, cached \(memo.count).")
+            progressUpdate(stats.nodes, maxPositions, Date().timeIntervalSince(startTime), timeLimit)
         }
 
         let cacheKey = state.cacheKey
@@ -1214,7 +1385,16 @@ private struct MancalaOptimalSolver {
 
         for move in moves {
             let nextState = play(move, in: state)
-            guard let childResult = solve(nextState, memo: &memo, stats: &stats, progress: progress) else {
+            guard let childResult = solve(
+                nextState,
+                memo: &memo,
+                stats: &stats,
+                maxPositions: maxPositions,
+                startTime: startTime,
+                timeLimit: timeLimit,
+                progress: progress,
+                progressUpdate: progressUpdate
+            ) else {
                 return nil
             }
             let score = childResult.score
@@ -1233,6 +1413,12 @@ private struct MancalaOptimalSolver {
         let result = Result(score: bestScore, move: bestMove)
         memo[cacheKey] = result
         return result
+    }
+
+    nonisolated private static func evaluate(_ pits: [Int]) -> Int {
+        let playerOneSide = playablePits(for: 1).reduce(0) { $0 + pits[$1] }
+        let playerTwoSide = playablePits(for: 2).reduce(0) { $0 + pits[$1] }
+        return (pits[13] - pits[6]) + (playerTwoSide - playerOneSide)
     }
 
     nonisolated private static func play(_ selectedIndex: Int, in state: State) -> State {
