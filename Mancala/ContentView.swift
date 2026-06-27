@@ -24,22 +24,21 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geometry in
             let isPortrait = geometry.size.height > geometry.size.width
+            let verticalPadding: CGFloat = isPortrait ? 8 : 20
+            let availableHeight = geometry.size.height - (verticalPadding * 2)
 
             ZStack {
                 background
 
                 if isPortrait {
-                    ScrollView(.vertical) {
-                        gameContent(isPortrait: true)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .frame(maxWidth: 520)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .scrollIndicators(.hidden)
+                    gameContent(isPortrait: true, availableHeight: availableHeight)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, verticalPadding)
+                        .frame(maxWidth: 520)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 } else {
-                    gameContent(isPortrait: false)
-                        .padding(20)
+                    gameContent(isPortrait: false, availableHeight: availableHeight)
+                        .padding(verticalPadding)
                         .frame(maxWidth: 980)
                 }
             }
@@ -108,17 +107,27 @@ struct ContentView: View {
         isDarkMode ? Color.cyan.opacity(0.58) : Color.blue.opacity(0.56)
     }
 
-    private func gameContent(isPortrait: Bool) -> some View {
-        VStack(spacing: isPortrait ? 12 : 18) {
-            header
+    private func gameContent(isPortrait: Bool, availableHeight: CGFloat) -> some View {
+        let contentSpacing: CGFloat = isPortrait ? 10 : 18
+        let headerHeight: CGFloat = isPortrait ? 76 : 64
+        let statusHeight: CGFloat = isPortrait ? 46 : 0
+        let visibleStatusSpacing = isPortrait ? contentSpacing : 0
+        let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing)
+        let portraitStoreHeight = min(54, max(38, boardHeight * 0.10))
+        let portraitPitHeight = max(34, (boardHeight - 24 - 20 - (portraitStoreHeight * 2) - 40) / 6)
+
+        return VStack(spacing: contentSpacing) {
+            header(isPortrait: isPortrait)
+                .frame(height: headerHeight)
 
             GlassEffectContainer(spacing: 16) {
                 if isPortrait {
-                    portraitBoard
+                    portraitBoard(pitHeight: portraitPitHeight, storeHeight: portraitStoreHeight)
                 } else {
                     wideBoard
                 }
             }
+            .frame(height: isPortrait ? boardHeight : nil)
             .coordinateSpace(name: "BoardSpace")
             .overlayPreferenceValue(CellFramePreferenceKey.self) { preferences in
                 GeometryReader { proxy in
@@ -137,11 +146,14 @@ struct ContentView: View {
                 }
             }
 
-            statusPanel
+            if isPortrait {
+                statusPanel
+                    .frame(height: statusHeight)
+            }
         }
     }
 
-    private var header: some View {
+    private func header(isPortrait: Bool) -> some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Mancala")
@@ -154,6 +166,13 @@ struct ContentView: View {
             }
 
             Spacer()
+
+            if !isPortrait {
+                statusPanel
+                    .frame(maxWidth: 260)
+
+                Spacer()
+            }
 
             Button {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
@@ -205,28 +224,28 @@ struct ContentView: View {
         }
     }
 
-    private var portraitBoard: some View {
+    private func portraitBoard(pitHeight: CGFloat, storeHeight: CGFloat) -> some View {
         VStack(spacing: 10) {
             storeView(owner: .playerTwo, compact: true)
-                .frame(height: 64)
+                .frame(height: storeHeight)
                 .recordCellFrame(id: game.storeIndex(for: .playerTwo))
 
             HStack(alignment: .top, spacing: 10) {
                 VStack(spacing: 8) {
                     ForEach(Array(game.playerTwoPitIndices.reversed()), id: \.self) { index in
-                        pitButton(index: index, minHeight: 70)
+                        pitButton(index: index, minHeight: pitHeight)
                     }
                 }
 
                 VStack(spacing: 8) {
                     ForEach(game.playerOnePitIndices, id: \.self) { index in
-                        pitButton(index: index, minHeight: 70)
+                        pitButton(index: index, minHeight: pitHeight)
                     }
                 }
             }
 
             storeView(owner: .playerOne, compact: true)
-                .frame(height: 64)
+                .frame(height: storeHeight)
                 .recordCellFrame(id: game.storeIndex(for: .playerOne))
         }
         .padding(12)
@@ -256,28 +275,33 @@ struct ContentView: View {
     private func pitButton(index: Int, minHeight: CGFloat) -> some View {
         let owner = game.owner(ofPitAt: index)
         let isPlayable = game.canPlayPit(at: index) && !isAnimatingMove
+        let isCompactPit = minHeight < 92
+        let contentSpacing = isCompactPit ? max(2, minHeight * 0.04) : 5
+        let verticalInset = isCompactPit ? max(3, minHeight * 0.07) : 8
+        let clusterHeight = isCompactPit ? min(28, max(16, minHeight * 0.25)) : 46
+        let countSize = isCompactPit ? min(22, max(17, minHeight * 0.27)) : 27
 
         return Button {
             Task {
                 await animateMove(from: index)
             }
         } label: {
-            VStack(spacing: 5) {
+            VStack(spacing: contentSpacing) {
                 Text(owner.shortName)
-                    .font(.caption2.weight(.semibold))
+                    .font(.system(size: isCompactPit ? 11 : 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(secondaryText)
 
                 stoneCluster(count: game.pits[index])
-                    .frame(height: minHeight < 80 ? 30 : 46)
+                    .frame(height: clusterHeight)
 
                 Text("\(game.pits[index])")
-                    .font(.system(size: minHeight < 80 ? 22 : 27, weight: .semibold, design: .rounded).monospacedDigit())
+                    .font(.system(size: countSize, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(primaryText)
                     .contentTransition(.numericText())
             }
-            .frame(maxWidth: .infinity, minHeight: minHeight)
-            .padding(.vertical, minHeight < 80 ? 6 : 8)
+            .padding(.vertical, verticalInset)
             .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: minHeight)
             .glassEffect(.regular.tint(isPlayable ? playableTint : pitTint).interactive(isPlayable), in: .rect(cornerRadius: 20))
             .overlay {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -409,10 +433,55 @@ struct ContentView: View {
             try? await Task.sleep(for: .milliseconds(30))
         }
 
+        let lastIndex = path[path.count - 1]
+        let animatedCapture = await animateCaptureIfNeeded(lastIndex: lastIndex)
+
         withAnimation(.spring(response: 0.36, dampingFraction: 0.84)) {
-            game.finishAnimatedMove(lastIndex: path[path.count - 1])
+            game.finishAnimatedMove(lastIndex: lastIndex, captureAlreadyApplied: animatedCapture)
             isAnimatingMove = false
         }
+    }
+
+    @MainActor
+    private func animateCaptureIfNeeded(lastIndex: Int) async -> Bool {
+        guard let capture = game.captureMove(afterLandingAt: lastIndex),
+              let storeFrame = cellFrames[capture.storeIndex] else {
+            return false
+        }
+
+        let capturedSources = [capture.landingIndex] + Array(repeating: capture.oppositeIndex, count: capture.capturedStones)
+        let storePoint = storeFrame.center
+        guard capturedSources.allSatisfy({ cellFrames[$0] != nil }) else {
+            return false
+        }
+
+        for (step, sourceIndex) in capturedSources.enumerated() {
+            let sourceFrame = cellFrames[sourceIndex, default: .zero]
+            let sourcePoint = sourceFrame.center
+
+            withAnimation(.spring(response: 0.18, dampingFraction: 0.80)) {
+                game.removeStone(at: sourceIndex)
+            }
+
+            flyingStone = FlyingStone(position: sourcePoint, colorIndex: step + 2)
+            try? await Task.sleep(for: .milliseconds(20))
+
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) {
+                flyingStone?.position = storePoint
+            }
+
+            try? await Task.sleep(for: .milliseconds(95))
+
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
+                game.depositStone(at: capture.storeIndex)
+                hapticTrigger += 1
+                flyingStone = nil
+            }
+
+            try? await Task.sleep(for: .milliseconds(12))
+        }
+
+        return true
     }
 
     private func updateCellFrames(_ preferences: [Int: Anchor<CGRect>], proxy: GeometryProxy) {
@@ -445,6 +514,13 @@ struct ContentView: View {
 private struct FlyingStone: Equatable {
     var position: CGPoint
     let colorIndex: Int
+}
+
+private struct CaptureMove {
+    let landingIndex: Int
+    let oppositeIndex: Int
+    let storeIndex: Int
+    let capturedStones: Int
 }
 
 private enum Player: Equatable {
@@ -553,8 +629,30 @@ private struct MancalaGame {
         pits[index] += 1
     }
 
-    mutating func finishAnimatedMove(lastIndex: Int) {
-        captureIfNeeded(lastIndex: lastIndex)
+    mutating func removeStone(at index: Int) {
+        guard pits.indices.contains(index), pits[index] > 0 else { return }
+        pits[index] -= 1
+    }
+
+    func captureMove(afterLandingAt lastIndex: Int) -> CaptureMove? {
+        guard playablePits(for: currentPlayer).contains(lastIndex), pits[lastIndex] == 1 else { return nil }
+
+        let oppositeIndex = 12 - lastIndex
+        let capturedStones = pits[oppositeIndex]
+        guard capturedStones > 0 else { return nil }
+
+        return CaptureMove(
+            landingIndex: lastIndex,
+            oppositeIndex: oppositeIndex,
+            storeIndex: storeIndex(for: currentPlayer),
+            capturedStones: capturedStones
+        )
+    }
+
+    mutating func finishAnimatedMove(lastIndex: Int, captureAlreadyApplied: Bool = false) {
+        if !captureAlreadyApplied {
+            captureIfNeeded(lastIndex: lastIndex)
+        }
         finishTurn(lastIndex: lastIndex)
     }
 
