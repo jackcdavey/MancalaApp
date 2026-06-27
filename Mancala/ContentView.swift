@@ -1,5 +1,6 @@
 import SwiftUI
 import Playgrounds
+import FoundationModels
 
 @main struct MyApp: App {
     var body: some Scene {
@@ -16,6 +17,13 @@ struct ContentView: View {
     @State private var flyingStone: FlyingStone?
     @State private var isAnimatingMove = false
     @State private var hapticTrigger = 0
+    @State private var gameMode = GameMode.twoPlayer
+    @State private var difficulty = AIDifficulty.medium
+    @State private var startingPlayer = StartingPlayer.human
+    @State private var isSettingsPresented = false
+    @State private var isAIMovePending = false
+
+    private let model = SystemLanguageModel.default
 
     private var isDarkMode: Bool {
         colorScheme == .dark
@@ -44,6 +52,9 @@ struct ContentView: View {
             }
         }
         .sensoryFeedback(.selection, trigger: hapticTrigger)
+        .sheet(isPresented: $isSettingsPresented) {
+            settingsSheet
+        }
     }
 
     private var background: some View {
@@ -105,6 +116,28 @@ struct ContentView: View {
 
     private var strongStroke: Color {
         isDarkMode ? Color.cyan.opacity(0.58) : Color.blue.opacity(0.56)
+    }
+
+    private var isSinglePlayerAvailable: Bool {
+        if case .available = model.availability {
+            return true
+        }
+        return false
+    }
+
+    private var modelAvailabilityMessage: String? {
+        switch model.availability {
+        case .available:
+            return nil
+        case .unavailable(.deviceNotEligible):
+            return "Single player requires a device that supports Apple Intelligence."
+        case .unavailable(.appleIntelligenceNotEnabled):
+            return "Turn on Apple Intelligence in Settings to use single player."
+        case .unavailable(.modelNotReady):
+            return "The on-device model is still getting ready. Try again later."
+        case .unavailable:
+            return "Single player is unavailable on this device right now."
+        }
     }
 
     private func gameContent(isPortrait: Bool, availableHeight: CGFloat) -> some View {
@@ -176,9 +209,13 @@ struct ContentView: View {
 
             Button {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
-                    game.reset()
+                    resetGame()
                     flyingStone = nil
                     isAnimatingMove = false
+                    isAIMovePending = false
+                }
+                Task {
+                    await runAIMoveIfNeeded()
                 }
             } label: {
                 Image(systemName: "arrow.counterclockwise")
@@ -187,9 +224,92 @@ struct ContentView: View {
                     .frame(width: 44, height: 44)
             }
             .buttonStyle(.glass)
-            .disabled(isAnimatingMove)
+            .disabled(isAnimatingMove || isAIMovePending)
             .accessibilityLabel("Reset game")
+
+            Button {
+                isSettingsPresented = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(primaryText)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.glass)
+            .disabled(isAnimatingMove || isAIMovePending)
+            .accessibilityLabel("Settings")
         }
+    }
+
+    private var settingsSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Players") {
+                    Picker("Mode", selection: $gameMode) {
+                        Text("2 Players").tag(GameMode.twoPlayer)
+                        Text("1 Player").tag(GameMode.singlePlayer)
+                            .disabled(!isSinglePlayerAvailable)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: gameMode) { _, newMode in
+                        if newMode == .singlePlayer, !isSinglePlayerAvailable {
+                            gameMode = .twoPlayer
+                        }
+
+                        resetForSettingsChange()
+                    }
+
+                    if let modelAvailabilityMessage {
+                        Text(modelAvailabilityMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if gameMode == .singlePlayer {
+                    Section("First Move") {
+                        Picker("Starts", selection: $startingPlayer) {
+                            ForEach(StartingPlayer.allCases) { startingPlayer in
+                                Text(startingPlayer.title).tag(startingPlayer)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: startingPlayer) { _, _ in
+                            resetForSettingsChange()
+                        }
+
+                        Text(startingPlayer.description)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Section("Difficulty") {
+                        Picker("Skill", selection: $difficulty) {
+                            ForEach(AIDifficulty.allCases) { difficulty in
+                                Text(difficulty.title).tag(difficulty)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text(difficulty.description)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        isSettingsPresented = false
+                        Task {
+                            await runAIMoveIfNeeded()
+                        }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     private var wideBoard: some View {
@@ -257,10 +377,20 @@ struct ContentView: View {
     }
 
     private var statusPanel: some View {
-        Text(game.statusText)
-            .font(.headline.weight(.semibold))
-            .multilineTextAlignment(.center)
+        HStack(spacing: 8) {
+            Text(game.statusText)
+                .font(.headline.weight(.semibold))
+                .contentTransition(.numericText())
+
+            if isAIMovePending {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(primaryText)
+                    .accessibilityLabel("AI is thinking")
+            }
+        }
             .foregroundStyle(primaryText)
+            .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .padding(.horizontal, 16)
@@ -269,12 +399,11 @@ struct ContentView: View {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(quietStroke, lineWidth: 1)
             }
-            .contentTransition(.numericText())
     }
 
     private func pitButton(index: Int, minHeight: CGFloat) -> some View {
         let owner = game.owner(ofPitAt: index)
-        let isPlayable = game.canPlayPit(at: index) && !isAnimatingMove
+        let isPlayable = game.canPlayPit(at: index) && !isAnimatingMove && !isAIMovePending && canHumanPlayPit(at: index)
         let isCompactPit = minHeight < 92
         let contentSpacing = isCompactPit ? max(2, minHeight * 0.04) : 5
         let verticalInset = isCompactPit ? max(3, minHeight * 0.07) : 8
@@ -312,6 +441,38 @@ struct ContentView: View {
         .disabled(!isPlayable)
         .recordCellFrame(id: index)
         .accessibilityLabel("\(owner.name) pit with \(game.pits[index]) stones")
+    }
+
+    private func canHumanPlayPit(at index: Int) -> Bool {
+        gameMode == .twoPlayer || game.owner(ofPitAt: index) == .playerOne
+    }
+
+    private func resetForSettingsChange() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            resetGame()
+            flyingStone = nil
+            isAnimatingMove = false
+            isAIMovePending = false
+        }
+    }
+
+    private func resetGame() {
+        game.reset(startingPlayer: resolvedStartingPlayer())
+    }
+
+    private func resolvedStartingPlayer() -> Player {
+        guard gameMode == .singlePlayer else {
+            return .playerOne
+        }
+
+        switch startingPlayer {
+        case .human:
+            return .playerOne
+        case .ai:
+            return .playerTwo
+        case .random:
+            return Bool.random() ? .playerOne : .playerTwo
+        }
     }
 
     @ViewBuilder
@@ -440,6 +601,67 @@ struct ContentView: View {
             game.finishAnimatedMove(lastIndex: lastIndex, captureAlreadyApplied: animatedCapture)
             isAnimatingMove = false
         }
+
+        await runAIMoveIfNeeded()
+    }
+
+    @MainActor
+    private func runAIMoveIfNeeded() async {
+        guard gameMode == .singlePlayer,
+              isSinglePlayerAvailable,
+              game.currentPlayer == .playerTwo,
+              !game.isGameOver,
+              !isAnimatingMove,
+              !isAIMovePending else {
+            return
+        }
+
+        isAIMovePending = true
+        try? await Task.sleep(for: .milliseconds(350))
+
+        guard let selectedPit = await chooseAIPit() else {
+            isAIMovePending = false
+            return
+        }
+
+        isAIMovePending = false
+        await animateMove(from: selectedPit)
+    }
+
+    private func chooseAIPit() async -> Int? {
+        let legalPits = game.legalPits(for: .playerTwo)
+        guard !legalPits.isEmpty else { return nil }
+
+        do {
+            let session = LanguageModelSession()
+            let response = try await session.respond(
+                to: aiPrompt(legalPits: legalPits),
+                generating: AIMancalaMove.self
+            )
+            let selectedPit = response.content.pitIndex
+
+            if legalPits.contains(selectedPit) {
+                return selectedPit
+            }
+        } catch {
+            return legalPits.first
+        }
+
+        return legalPits.first
+    }
+
+    private func aiPrompt(legalPits: [Int]) -> String {
+        """
+        You are playing Mancala as Player 2.
+        Board array indices 0...5 are Player 1 pits, index 6 is Player 1 store, indices 7...12 are Player 2 pits, and index 13 is Player 2 store.
+        Current board: \(game.pits)
+        Legal Player 2 pit indices: \(legalPits)
+        Player 1 store: \(game.storeCount(for: .playerOne))
+        Player 2 store: \(game.storeCount(for: .playerTwo))
+        Difficulty: \(difficulty.title)
+        Strategy: \(difficulty.promptInstruction)
+        Return one legal pit index from the legal indices list.
+        """
     }
 
     @MainActor
@@ -523,6 +745,84 @@ private struct CaptureMove {
     let capturedStones: Int
 }
 
+private enum GameMode: String, CaseIterable, Identifiable {
+    case twoPlayer
+    case singlePlayer
+
+    var id: String { rawValue }
+}
+
+private enum StartingPlayer: String, CaseIterable, Identifiable {
+    case human
+    case ai
+    case random
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .human: "Player"
+        case .ai: "AI"
+        case .random: "Random"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .human:
+            "Player 1 makes the first move."
+        case .ai:
+            "The AI opens as Player 2."
+        case .random:
+            "A starting side is chosen each time the game resets."
+        }
+    }
+}
+
+private enum AIDifficulty: String, CaseIterable, Identifiable {
+    case easy
+    case medium
+    case hard
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .easy: "Easy"
+        case .medium: "Medium"
+        case .hard: "Hard"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .easy:
+            "Makes legal casual moves without deep planning."
+        case .medium:
+            "Looks for extra turns, captures, and obvious risks."
+        case .hard:
+            "Plays more carefully for store advantage and safer positions."
+        }
+    }
+
+    var promptInstruction: String {
+        switch self {
+        case .easy:
+            "Choose a legal casual move. Do not deeply optimize."
+        case .medium:
+            "Prefer moves that earn an extra turn, capture stones, or avoid an obvious immediate loss."
+        case .hard:
+            "Evaluate all legal moves. Prioritize extra turns, captures, store advantage, and positions that reduce Player 1 capture opportunities."
+        }
+    }
+}
+
+@Generable
+private struct AIMancalaMove {
+    @Guide(description: "One legal Player 2 pit index from the provided legal pit list", .range(7...12))
+    var pitIndex: Int
+}
+
 private enum Player: Equatable {
     case playerOne
     case playerTwo
@@ -574,15 +874,20 @@ private struct MancalaGame {
         return "\(currentPlayer.name)'s turn"
     }
 
-    mutating func reset() {
+    mutating func reset(startingPlayer: Player = .playerOne) {
         pits = [4, 4, 4, 4, 4, 4, 0, 4, 4, 4, 4, 4, 4, 0]
-        currentPlayer = .playerOne
+        currentPlayer = startingPlayer
         winner = nil
         isDraw = false
     }
 
     func canPlayPit(at index: Int) -> Bool {
         !isGameOver && playablePits(for: currentPlayer).contains(index) && pits[index] > 0
+    }
+
+    func legalPits(for player: Player) -> [Int] {
+        guard !isGameOver, currentPlayer == player else { return [] }
+        return playablePits(for: player).filter { pits[$0] > 0 }
     }
 
     func owner(ofPitAt index: Int) -> Player {
