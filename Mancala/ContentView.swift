@@ -22,6 +22,9 @@ struct ContentView: View {
     @State private var startingPlayer = StartingPlayer.human
     @State private var isSettingsPresented = false
     @State private var isAIMovePending = false
+    @State private var aiSearchTask: Task<Int?, Never>?
+    @State private var isThoughtPanelExpanded = false
+    @State private var aiThoughtLog: [String] = []
 
     private let model = SystemLanguageModel.default
 
@@ -142,8 +145,8 @@ struct ContentView: View {
 
     private func gameContent(isPortrait: Bool, availableHeight: CGFloat) -> some View {
         let contentSpacing: CGFloat = isPortrait ? 10 : 18
-        let headerHeight: CGFloat = isPortrait ? 76 : 64
-        let statusHeight: CGFloat = isPortrait ? 46 : 0
+        let headerHeight: CGFloat = isPortrait ? 76 : (isThoughtPanelExpanded ? 148 : 64)
+        let statusHeight: CGFloat = isPortrait ? (isThoughtPanelExpanded ? 148 : 46) : 0
         let visibleStatusSpacing = isPortrait ? contentSpacing : 0
         let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing)
         let portraitStoreHeight = min(54, max(38, boardHeight * 0.10))
@@ -202,20 +205,24 @@ struct ContentView: View {
 
             if !isPortrait {
                 statusPanel
-                    .frame(maxWidth: 260)
+                    .frame(maxWidth: isThoughtPanelExpanded ? 360 : 260)
 
                 Spacer()
             }
 
             Button {
+                let shouldStartAIAfterReset = !isAIMovePending
+                cancelAIThinking()
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
                     resetGame()
                     flyingStone = nil
                     isAnimatingMove = false
                     isAIMovePending = false
                 }
-                Task {
-                    await runAIMoveIfNeeded()
+                if shouldStartAIAfterReset {
+                    Task {
+                        await runAIMoveIfNeeded()
+                    }
                 }
             } label: {
                 Image(systemName: "arrow.counterclockwise")
@@ -224,7 +231,7 @@ struct ContentView: View {
                     .frame(width: 44, height: 44)
             }
             .buttonStyle(.glass)
-            .disabled(isAnimatingMove || isAIMovePending)
+            .disabled(isAnimatingMove)
             .accessibilityLabel("Reset game")
 
             Button {
@@ -377,28 +384,63 @@ struct ContentView: View {
     }
 
     private var statusPanel: some View {
-        HStack(spacing: 8) {
-            Text(game.statusText)
-                .font(.headline.weight(.semibold))
-                .contentTransition(.numericText())
-
-            if isAIMovePending {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(primaryText)
-                    .accessibilityLabel("AI is thinking")
+        Button {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                isThoughtPanelExpanded.toggle()
             }
-        }
-            .foregroundStyle(primaryText)
-            .multilineTextAlignment(.center)
+        } label: {
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(game.statusText)
+                        .font(.headline.weight(.semibold))
+                        .contentTransition(.numericText())
+
+                    if isAIMovePending {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(primaryText)
+                            .accessibilityLabel("AI is thinking")
+                    }
+
+                    Image(systemName: isThoughtPanelExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .opacity(aiThoughtLog.isEmpty && !isAIMovePending ? 0.35 : 0.70)
+                }
+
+                if isThoughtPanelExpanded {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(displayedThoughtLog, id: \.self) { entry in
+                            Text(entry)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(secondaryText)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .padding(.horizontal, 16)
-            .glassEffect(.regular.tint(storeTint), in: .rect(cornerRadius: 18))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(quietStroke, lineWidth: 1)
-            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(primaryText)
+        .multilineTextAlignment(.center)
+        .glassEffect(.regular.tint(storeTint), in: .rect(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(quietStroke, lineWidth: 1)
+        }
+        .accessibilityHint("Tap to show or hide AI thinking details")
+    }
+
+    private var displayedThoughtLog: [String] {
+        if aiThoughtLog.isEmpty {
+            return isAIMovePending ? ["Preparing move search..."] : ["No AI thinking details yet."]
+        }
+
+        return Array(aiThoughtLog.suffix(5))
     }
 
     private func pitButton(index: Int, minHeight: CGFloat) -> some View {
@@ -448,6 +490,7 @@ struct ContentView: View {
     }
 
     private func resetForSettingsChange() {
+        cancelAIThinking()
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             resetGame()
             flyingStone = nil
@@ -458,6 +501,23 @@ struct ContentView: View {
 
     private func resetGame() {
         game.reset(startingPlayer: resolvedStartingPlayer())
+    }
+
+    private func cancelAIThinking() {
+        let wasThinking = isAIMovePending || aiSearchTask != nil
+        aiSearchTask?.cancel()
+        aiSearchTask = nil
+        isAIMovePending = false
+        if wasThinking {
+            appendAIThought("Cancelled AI search.")
+        }
+    }
+
+    private func appendAIThought(_ entry: String) {
+        aiThoughtLog.append(entry)
+        if aiThoughtLog.count > 40 {
+            aiThoughtLog.removeFirst(aiThoughtLog.count - 40)
+        }
     }
 
     private func resolvedStartingPlayer() -> Player {
@@ -617,13 +677,27 @@ struct ContentView: View {
         }
 
         isAIMovePending = true
+        aiThoughtLog = []
+        appendAIThought("\(difficulty.title) AI is choosing a move.")
         try? await Task.sleep(for: .milliseconds(350))
 
         guard let selectedPit = await chooseAIPit() else {
             isAIMovePending = false
+            aiSearchTask = nil
+            appendAIThought("No move selected.")
             return
         }
 
+        guard isAIMovePending,
+              gameMode == .singlePlayer,
+              game.currentPlayer == .playerTwo,
+              !game.isGameOver else {
+            aiSearchTask = nil
+            return
+        }
+
+        appendAIThought("Selected pit \(selectedPit).")
+        aiSearchTask = nil
         isAIMovePending = false
         await animateMove(from: selectedPit)
     }
@@ -632,7 +706,23 @@ struct ContentView: View {
         let legalPits = game.legalPits(for: .playerTwo)
         guard !legalPits.isEmpty else { return nil }
 
+        if difficulty == .impossible {
+            appendAIThought("Starting exact search over legal pits \(legalPits).")
+            let pitsSnapshot = game.pits
+            let progress: @Sendable (String) -> Void = { entry in
+                Task { @MainActor in
+                    appendAIThought(entry)
+                }
+            }
+            let searchTask = Task.detached(priority: .userInitiated) {
+                MancalaOptimalSolver.bestMove(pits: pitsSnapshot, currentPlayer: 2, progress: progress)
+            }
+            aiSearchTask = searchTask
+            return await searchTask.value ?? legalPits.first
+        }
+
         do {
+            appendAIThought("Requesting on-device model move.")
             let session = LanguageModelSession()
             let response = try await session.respond(
                 to: aiPrompt(legalPits: legalPits),
@@ -643,7 +733,10 @@ struct ContentView: View {
             if legalPits.contains(selectedPit) {
                 return selectedPit
             }
+
+            appendAIThought("Model returned illegal pit \(selectedPit); using fallback.")
         } catch {
+            appendAIThought("Model request failed; using fallback.")
             return legalPits.first
         }
 
@@ -783,6 +876,7 @@ private enum AIDifficulty: String, CaseIterable, Identifiable {
     case easy
     case medium
     case hard
+    case impossible
 
     var id: String { rawValue }
 
@@ -791,6 +885,7 @@ private enum AIDifficulty: String, CaseIterable, Identifiable {
         case .easy: "Easy"
         case .medium: "Medium"
         case .hard: "Hard"
+        case .impossible: "Impossible"
         }
     }
 
@@ -802,6 +897,8 @@ private enum AIDifficulty: String, CaseIterable, Identifiable {
             "Looks for extra turns, captures, and obvious risks."
         case .hard:
             "Plays more carefully for store advantage and safer positions."
+        case .impossible:
+            "Solves the position and always chooses an optimal move."
         }
     }
 
@@ -813,6 +910,8 @@ private enum AIDifficulty: String, CaseIterable, Identifiable {
             "Prefer moves that earn an extra turn, capture stones, or avoid an obvious immediate loss."
         case .hard:
             "Evaluate all legal moves. Prioritize extra turns, captures, store advantage, and positions that reduce Player 1 capture opportunities."
+        case .impossible:
+            "This difficulty uses a deterministic solver instead of the language model."
         }
     }
 }
@@ -1029,6 +1128,190 @@ private struct MancalaGame {
         } else {
             winner = playerOneScore > playerTwoScore ? .playerOne : .playerTwo
         }
+    }
+}
+
+private struct MancalaOptimalSolver {
+    private struct SearchStats {
+        var nodes = 0
+        var memoHits = 0
+        var lastReportedNodeCount = 0
+
+        nonisolated init() {}
+    }
+
+    private struct State {
+        var pits: [Int]
+        var currentPlayer: Int
+
+        nonisolated init(pits: [Int], currentPlayer: Int) {
+            self.pits = pits
+            self.currentPlayer = currentPlayer
+        }
+
+        nonisolated var cacheKey: String {
+            "\(currentPlayer):" + pits.map(String.init).joined(separator: ",")
+        }
+    }
+
+    private struct Result {
+        var score: Int
+        var move: Int?
+    }
+
+    nonisolated static func bestMove(pits: [Int], currentPlayer: Int, progress: @escaping @Sendable (String) -> Void) -> Int? {
+        var memo: [String: Result] = [:]
+        var stats = SearchStats()
+        let state = State(pits: pits, currentPlayer: currentPlayer)
+        progress("Checking \(legalMoves(for: state.currentPlayer, pits: state.pits).count) legal root moves.")
+        let result = solve(state, memo: &memo, stats: &stats, progress: progress)
+        if Task.isCancelled {
+            progress("Search cancelled after \(stats.nodes) positions.")
+            return nil
+        }
+
+        progress("Search complete: \(stats.nodes) positions, \(memo.count) cached states.")
+        return result?.move
+    }
+
+    nonisolated private static func solve(
+        _ state: State,
+        memo: inout [String: Result],
+        stats: inout SearchStats,
+        progress: @escaping @Sendable (String) -> Void
+    ) -> Result? {
+        if Task.isCancelled {
+            return nil
+        }
+
+        stats.nodes += 1
+        if stats.nodes - stats.lastReportedNodeCount >= 10_000 {
+            stats.lastReportedNodeCount = stats.nodes
+            progress("Searched \(stats.nodes) positions, cached \(memo.count).")
+        }
+
+        let cacheKey = state.cacheKey
+        if let cached = memo[cacheKey] {
+            stats.memoHits += 1
+            return cached
+        }
+
+        if isGameOver(state.pits) {
+            let result = Result(score: state.pits[13] - state.pits[6], move: nil)
+            memo[cacheKey] = result
+            return result
+        }
+
+        let moves = legalMoves(for: state.currentPlayer, pits: state.pits)
+        guard !moves.isEmpty else {
+            let result = Result(score: state.pits[13] - state.pits[6], move: nil)
+            memo[cacheKey] = result
+            return result
+        }
+
+        var bestMove: Int?
+        var bestScore = state.currentPlayer == 2 ? Int.min : Int.max
+
+        for move in moves {
+            let nextState = play(move, in: state)
+            guard let childResult = solve(nextState, memo: &memo, stats: &stats, progress: progress) else {
+                return nil
+            }
+            let score = childResult.score
+
+            if state.currentPlayer == 2 {
+                if score > bestScore {
+                    bestScore = score
+                    bestMove = move
+                }
+            } else if score < bestScore {
+                bestScore = score
+                bestMove = move
+            }
+        }
+
+        let result = Result(score: bestScore, move: bestMove)
+        memo[cacheKey] = result
+        return result
+    }
+
+    nonisolated private static func play(_ selectedIndex: Int, in state: State) -> State {
+        var pits = state.pits
+        let currentPlayer = state.currentPlayer
+        let opponentStore = storeIndex(for: opponent(of: currentPlayer))
+        let ownStore = storeIndex(for: currentPlayer)
+        var stones = pits[selectedIndex]
+        pits[selectedIndex] = 0
+        var index = selectedIndex
+
+        while stones > 0 {
+            index = (index + 1) % pits.count
+            if index == opponentStore {
+                continue
+            }
+
+            pits[index] += 1
+            stones -= 1
+        }
+
+        let ownPits = playablePits(for: currentPlayer)
+        if ownPits.contains(index), pits[index] == 1 {
+            let oppositeIndex = 12 - index
+            let capturedStones = pits[oppositeIndex]
+            if capturedStones > 0 {
+                pits[oppositeIndex] = 0
+                pits[index] = 0
+                pits[ownStore] += capturedStones + 1
+            }
+        }
+
+        if sideIsEmpty(1, pits: pits) || sideIsEmpty(2, pits: pits) {
+            collectRemainingStones(in: &pits)
+            return State(pits: pits, currentPlayer: currentPlayer)
+        }
+
+        let nextPlayer = index == ownStore ? currentPlayer : opponent(of: currentPlayer)
+        return State(pits: pits, currentPlayer: nextPlayer)
+    }
+
+    nonisolated private static func legalMoves(for player: Int, pits: [Int]) -> [Int] {
+        playablePits(for: player).filter { pits[$0] > 0 }
+    }
+
+    nonisolated private static func playablePits(for player: Int) -> [Int] {
+        switch player {
+        case 1: Array(0...5)
+        default: Array(7...12)
+        }
+    }
+
+    nonisolated private static func storeIndex(for player: Int) -> Int {
+        switch player {
+        case 1: 6
+        default: 13
+        }
+    }
+
+    nonisolated private static func isGameOver(_ pits: [Int]) -> Bool {
+        sideIsEmpty(1, pits: pits) || sideIsEmpty(2, pits: pits)
+    }
+
+    nonisolated private static func sideIsEmpty(_ player: Int, pits: [Int]) -> Bool {
+        playablePits(for: player).allSatisfy { pits[$0] == 0 }
+    }
+
+    nonisolated private static func collectRemainingStones(in pits: inout [Int]) {
+        for player in [1, 2] {
+            let remaining = playablePits(for: player).reduce(0) { $0 + pits[$1] }
+            pits[storeIndex(for: player)] += remaining
+            for index in playablePits(for: player) {
+                pits[index] = 0
+            }
+        }
+    }
+
+    nonisolated private static func opponent(of player: Int) -> Int {
+        player == 1 ? 2 : 1
     }
 }
 
