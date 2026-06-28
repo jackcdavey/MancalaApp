@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var flyingStone: FlyingStone?
     @State private var isAnimatingMove = false
     @State private var hapticTrigger = 0
+    @State private var endGameAnimationPulse = false
     @AppStorage("gameMode") private var gameMode = GameMode.twoPlayer
     @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = false
     @AppStorage("difficulty") private var difficulty = AIDifficulty.medium
@@ -36,6 +37,7 @@ struct ContentView: View {
     @AppStorage("modeSpecificPlayerNamesMigrated") private var modeSpecificPlayerNamesMigrated = false
     @State private var isSettingsPresented = false
     @State private var isGameHistoryPresented = false
+    @State private var isRulesPresented = false
     @State private var hasRecordedCurrentCompletedGame = false
     @State private var undoHistory: [MancalaGame] = []
     @State private var isAIMovePending = false
@@ -50,6 +52,8 @@ struct ContentView: View {
     @AppStorage("impossibleSearchTimeLimit") private var impossibleSearchTimeLimit = ContentView.defaultImpossibleTimeLimit
     @State private var impossibleSearchProgress = 0.0
     @State private var impossibleSearchProgressText = ""
+    @State private var hintedPitIndex: Int?
+    @State private var isHintSearching = false
     @AppStorage("savedSinglePlayerGameState") private var savedSinglePlayerGameState = Data()
     @AppStorage("savedTwoPlayerGameState") private var savedTwoPlayerGameState = Data()
     @AppStorage("savedZeroPlayerGameState") private var savedZeroPlayerGameState = Data()
@@ -83,14 +87,25 @@ struct ContentView: View {
                         .padding(verticalPadding)
                         .frame(maxWidth: 980)
                 }
+
+                if game.isGameOver {
+                    endGamePopup
+                        .padding(.horizontal, 24)
+                        .transition(.scale(scale: 0.82).combined(with: .opacity))
+                        .zIndex(4)
+                }
             }
         }
+        .animation(.spring(response: 0.44, dampingFraction: 0.78), value: game.isGameOver)
         .sensoryFeedback(.selection, trigger: hapticTrigger)
         .sheet(isPresented: $isSettingsPresented) {
             settingsSheet
         }
         .sheet(isPresented: $isGameHistoryPresented) {
             gameHistorySheet
+        }
+        .sheet(isPresented: $isRulesPresented) {
+            rulesSheet
         }
         .onAppear {
             migratePlayerNamesIfNeeded()
@@ -102,6 +117,18 @@ struct ContentView: View {
         }
         .onChange(of: onlineManager.pendingRemoteMoveIndex) { _, _ in
             applyPendingOnlineMatchIfNeeded()
+        }
+        .onChange(of: game.isGameOver) { _, isGameOver in
+            guard isGameOver else {
+                endGameAnimationPulse = false
+                return
+            }
+
+            hapticTrigger += 1
+            endGameAnimationPulse = false
+            withAnimation(.easeInOut(duration: 0.78).repeatForever(autoreverses: true)) {
+                endGameAnimationPulse = true
+            }
         }
     }
 
@@ -335,6 +362,46 @@ struct ContentView: View {
         }
     }
 
+    private var endGameTitle: String {
+        if game.isDraw {
+            return "Draw Game"
+        }
+
+        guard let winner = game.winner else {
+            return "Game Over"
+        }
+
+        if gameMode == .singlePlayer {
+            return winner == .playerOne ? "You Win" : "You Lose"
+        }
+
+        if gameMode == .onlineMultiplayer {
+            return winner == onlineManager.localPlayerSide ? "You Win" : "You Lose"
+        }
+
+        return "\(displayName(for: winner)) Wins"
+    }
+
+    private var endGameSubtitle: String {
+        "\(game.storeCount(for: .playerOne)) - \(game.storeCount(for: .playerTwo))"
+    }
+
+    private var endGameSymbolName: String {
+        if game.isDraw {
+            return "equal.circle.fill"
+        }
+
+        if gameMode == .singlePlayer, let winner = game.winner {
+            return winner == .playerOne ? "crown.fill" : "flag.checkered"
+        }
+
+        if gameMode == .onlineMultiplayer, let winner = game.winner {
+            return winner == onlineManager.localPlayerSide ? "crown.fill" : "flag.checkered"
+        }
+
+        return "crown.fill"
+    }
+
     private var statusText: String {
         if gameMode == .onlineMultiplayer, !game.isGameOver {
             return onlineManager.statusMessage
@@ -464,6 +531,75 @@ struct ContentView: View {
         #endif
     }
 
+    private var endGamePopup: some View {
+        VStack(spacing: 18) {
+            ZStack {
+                ForEach(0..<10, id: \.self) { index in
+                    Circle()
+                        .fill(stoneColor(for: index).opacity(isDarkMode ? 0.82 : 0.92))
+                        .frame(width: index.isMultiple(of: 2) ? 13 : 10, height: index.isMultiple(of: 2) ? 13 : 10)
+                        .offset(endGameStoneOffset(for: index, expanded: endGameAnimationPulse))
+                        .shadow(color: .black.opacity(isDarkMode ? 0.32 : 0.18), radius: 3, x: 0, y: 2)
+                }
+
+                Image(systemName: endGameSymbolName)
+                    .font(.system(size: 38, weight: .bold))
+                    .foregroundStyle(game.isDraw ? Color.secondary : Color.yellow)
+                    .scaleEffect(endGameAnimationPulse ? 1.08 : 0.96)
+                    .shadow(color: .black.opacity(isDarkMode ? 0.34 : 0.16), radius: 8, x: 0, y: 4)
+            }
+            .frame(width: 126, height: 92)
+            .accessibilityHidden(true)
+
+            VStack(spacing: 6) {
+                Text(endGameTitle)
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .foregroundStyle(primaryText)
+                    .multilineTextAlignment(.center)
+                    .contentTransition(.numericText())
+
+                Text(endGameSubtitle)
+                    .font(.title3.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(secondaryText)
+            }
+
+            Button {
+                playAgainFromEndGamePopup()
+            } label: {
+                Label(gameMode == .onlineMultiplayer ? "Play Again Online" : "Play Again", systemImage: "arrow.counterclockwise")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(primaryText)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 16)
+                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, interactive: true)
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(strongStroke, lineWidth: 1)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: 360)
+        .mancalaGlassEffect(tint: storeTint, cornerRadius: 28)
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(quietStroke, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(isDarkMode ? 0.36 : 0.18), radius: 24, x: 0, y: 18)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func endGameStoneOffset(for index: Int, expanded: Bool) -> CGSize {
+        let angles = [0.0, 37.0, 76.0, 118.0, 162.0, 205.0, 248.0, 286.0, 318.0, 344.0]
+        let baseRadius: CGFloat = 31
+        let radius = baseRadius + (expanded ? CGFloat(index % 3) * 5 + 8 : CGFloat(index % 3) * 2)
+        let radians = angles[index % angles.count] * .pi / 180
+        return CGSize(width: cos(radians) * radius, height: sin(radians) * radius * 0.68)
+    }
+
     private var difficultyPill: some View {
         let title: String
         let tint: Color
@@ -555,6 +691,19 @@ struct ContentView: View {
             }
 
             Menu {
+                Button {
+                    isRulesPresented = true
+                } label: {
+                    Label("Rules", systemImage: "book.closed")
+                }
+
+                Button {
+                    requestHint()
+                } label: {
+                    Label(isHintSearching ? "Finding Hint" : "Hint", systemImage: "lightbulb")
+                }
+                .disabled(!canRequestHint)
+
                 Button {
                     isGameHistoryPresented = true
                 } label: {
@@ -875,6 +1024,42 @@ struct ContentView: View {
         }
     }
 
+    private var rulesSheet: some View {
+        NavigationStack {
+            List {
+                Section("Goal") {
+                    Text("Collect more stones in your store than your opponent by the end of the game.")
+                }
+
+                Section("Taking a Turn") {
+                    Text("Choose one of your pits. All stones from that pit are picked up and dropped one at a time into following pits and your own store, moving counterclockwise around the board.")
+                    Text("Your opponent's store is skipped.")
+                }
+
+                Section("Extra Turns") {
+                    Text("If your last stone lands in your own store, you take another turn.")
+                }
+
+                Section("Captures") {
+                    Text("If your last stone lands in an empty pit on your side, and the opposite pit has stones, you capture your stone plus the opposite stones into your store.")
+                }
+
+                Section("Ending the Game") {
+                    Text("The game ends when all six pits on either side are empty. Any remaining stones move to their owner's store, and the higher score wins.")
+                }
+            }
+            .navigationTitle("Rules")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        isRulesPresented = false
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
     private var gameHistorySheet: some View {
         NavigationStack {
             List {
@@ -1057,6 +1242,7 @@ struct ContentView: View {
     private func pitButton(index: Int, minHeight: CGFloat) -> some View {
         let owner = game.owner(ofPitAt: index)
         let isPlayable = game.canPlayPit(at: index) && !isAnimatingMove && !isAIMovePending && canHumanPlayPit(at: index)
+        let isHinted = hintedPitIndex == index
         let isCompactPit = minHeight < 92
         let contentSpacing = isCompactPit ? max(2, minHeight * 0.04) : 5
         let verticalInset = isCompactPit ? max(3, minHeight * 0.07) : 8
@@ -1089,12 +1275,70 @@ struct ContentView: View {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .stroke(isPlayable ? strongStroke : quietStroke, lineWidth: isPlayable ? 1.5 : 1)
             }
+            .overlay {
+                if isHinted {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.yellow.opacity(isDarkMode ? 0.94 : 0.88), lineWidth: 3)
+                        .shadow(color: Color.yellow.opacity(0.82), radius: 12, x: 0, y: 0)
+                        .shadow(color: Color.orange.opacity(0.42), radius: 22, x: 0, y: 0)
+                        .transition(.opacity.combined(with: .scale(scale: 1.03)))
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .buttonStyle(.plain)
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .disabled(!isPlayable)
         .recordCellFrame(id: index)
         .accessibilityLabel("\(displayName(for: owner)) pit with \(game.pits[index]) stones")
+    }
+
+    private var canRequestHint: Bool {
+        gameMode != .zeroPlayer &&
+        !game.isGameOver &&
+        !isAnimatingMove &&
+        !isAIMovePending &&
+        !isHintSearching &&
+        !game.legalPits(for: game.currentPlayer).isEmpty &&
+        (gameMode != .onlineMultiplayer || onlineManager.isLocalPlayersTurn)
+    }
+
+    private func requestHint() {
+        guard canRequestHint else { return }
+
+        hintedPitIndex = nil
+        isHintSearching = true
+        let pitsSnapshot = game.pits
+        let currentPlayer = game.currentPlayer == .playerOne ? 1 : 2
+        let hintBudget = min(max(impossibleSearchLimit / 10, 100_000), 1_000_000)
+        let hintTimeLimit = 2.0
+
+        Task {
+            let suggestedPit = await Task.detached(priority: .userInitiated) {
+                MancalaOptimalSolver.bestMove(
+                    pits: pitsSnapshot,
+                    currentPlayer: currentPlayer,
+                    maxPositions: hintBudget,
+                    timeLimit: hintTimeLimit,
+                    progress: { _ in },
+                    progressUpdate: { _ in }
+                )
+            }.value
+
+            guard let suggestedPit,
+                  game.pits == pitsSnapshot,
+                  game.currentPlayer == (currentPlayer == 1 ? .playerOne : .playerTwo),
+                  game.canPlayPit(at: suggestedPit) else {
+                isHintSearching = false
+                return
+            }
+
+            withAnimation(.easeInOut(duration: 0.45)) {
+                hintedPitIndex = suggestedPit
+                isHintSearching = false
+                hapticTrigger += 1
+            }
+        }
     }
 
     private func canHumanPlayPit(at index: Int) -> Bool {
@@ -1171,6 +1415,18 @@ struct ContentView: View {
         }
     }
 
+    private func playAgainFromEndGamePopup() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            endGameAnimationPulse = false
+        }
+
+        if gameMode == .onlineMultiplayer {
+            onlineManager.startMatch()
+        } else {
+            resetCurrentGame()
+        }
+    }
+
     private func resetForSettingsChange() {
         cancelAIThinking()
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
@@ -1191,6 +1447,7 @@ struct ContentView: View {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             resetGame()
             flyingStone = nil
+            hintedPitIndex = nil
             isAnimatingMove = false
             isAIMovePending = false
         }
@@ -1215,6 +1472,7 @@ struct ContentView: View {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             restoreSavedGame(for: newMode)
             flyingStone = nil
+            hintedPitIndex = nil
             isAnimatingMove = false
             isAIMovePending = false
             hasRecordedCurrentCompletedGame = false
@@ -1517,6 +1775,7 @@ struct ContentView: View {
         guard game.canPlayPit(at: selectedIndex), !isAnimatingMove else { return }
 
         recordUndoSnapshotIfNeeded()
+        hintedPitIndex = nil
         let movingPlayer = game.currentPlayer
         let path = game.sowingPath(from: selectedIndex)
         guard let sourceFrame = cellFrames[selectedIndex], !path.isEmpty else {
@@ -1604,6 +1863,7 @@ struct ContentView: View {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             game = payload.game.game
             flyingStone = nil
+            hintedPitIndex = nil
             isAnimatingMove = false
             isAIMovePending = false
             hasRecordedCurrentCompletedGame = false
