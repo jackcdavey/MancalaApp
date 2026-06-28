@@ -4,6 +4,7 @@ enum GameMode: String, CaseIterable, Identifiable {
     case twoPlayer
     case singlePlayer
     case zeroPlayer
+    case onlineMultiplayer
 
     var id: String { rawValue }
 }

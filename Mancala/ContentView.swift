@@ -22,12 +22,15 @@ struct ContentView: View {
     @AppStorage("singlePlayerShowNumberLabels") private var singlePlayerShowNumberLabels = true
     @AppStorage("twoPlayerShowNumberLabels") private var twoPlayerShowNumberLabels = true
     @AppStorage("zeroPlayerShowNumberLabels") private var zeroPlayerShowNumberLabels = true
+    @AppStorage("onlineShowNumberLabels") private var onlineShowNumberLabels = true
     @AppStorage("singlePlayerOneName") private var singlePlayerOneName = "Player 1"
     @AppStorage("singlePlayerTwoName") private var singlePlayerTwoName = "Player 2"
     @AppStorage("twoPlayerOneName") private var twoPlayerOneName = "Player 1"
     @AppStorage("twoPlayerTwoName") private var twoPlayerTwoName = "Player 2"
     @AppStorage("zeroPlayerOneName") private var zeroPlayerOneName = "Player 1"
     @AppStorage("zeroPlayerTwoName") private var zeroPlayerTwoName = "Player 2"
+    @AppStorage("onlinePlayerOneName") private var onlinePlayerOneName = "Player 1"
+    @AppStorage("onlinePlayerTwoName") private var onlinePlayerTwoName = "Player 2"
     @AppStorage("playerOneName") private var legacyPlayerOneName = "Player 1"
     @AppStorage("playerTwoName") private var legacyPlayerTwoName = "Player 2"
     @AppStorage("modeSpecificPlayerNamesMigrated") private var modeSpecificPlayerNamesMigrated = false
@@ -41,6 +44,7 @@ struct ContentView: View {
     @State private var isThoughtPanelExpanded = false
     @State private var aiThoughtLog: [String] = []
     @State private var isZeroPlayerPaused = true
+    @State private var onlineManager = GameCenterMultiplayerManager()
     @AppStorage("impossibleSearchLimitMode") private var impossibleSearchLimitMode = ImpossibleSearchLimitMode.positions
     @AppStorage("impossibleSearchLimit") private var impossibleSearchLimit = ContentView.defaultImpossibleSearchLimit
     @AppStorage("impossibleSearchTimeLimit") private var impossibleSearchTimeLimit = ContentView.defaultImpossibleTimeLimit
@@ -49,6 +53,7 @@ struct ContentView: View {
     @AppStorage("savedSinglePlayerGameState") private var savedSinglePlayerGameState = Data()
     @AppStorage("savedTwoPlayerGameState") private var savedTwoPlayerGameState = Data()
     @AppStorage("savedZeroPlayerGameState") private var savedZeroPlayerGameState = Data()
+    @AppStorage("savedOnlineGameState") private var savedOnlineGameState = Data()
     @AppStorage("completedGameHistory") private var completedGameHistoryData = Data()
     @AppStorage("savedGameState") private var legacySavedGameState = Data()
 
@@ -90,6 +95,13 @@ struct ContentView: View {
         .onAppear {
             migratePlayerNamesIfNeeded()
             restoreSavedGameIfNeeded()
+            onlineManager.authenticateLocalPlayer()
+        }
+        .onChange(of: onlineManager.currentMatchID) { _, _ in
+            applyPendingOnlineMatchIfNeeded()
+        }
+        .onChange(of: onlineManager.pendingRemoteMoveIndex) { _, _ in
+            applyPendingOnlineMatchIfNeeded()
         }
     }
 
@@ -162,7 +174,7 @@ struct ContentView: View {
     }
 
     private var shouldShowStatusPanel: Bool {
-        gameMode == .singlePlayer || gameMode == .zeroPlayer
+        gameMode == .singlePlayer || gameMode == .zeroPlayer || gameMode == .onlineMultiplayer
     }
 
     private var shouldShowUndoButton: Bool {
@@ -171,7 +183,7 @@ struct ContentView: View {
             isSinglePlayerUndoButtonEnabled
         case .twoPlayer:
             isTwoPlayerUndoButtonEnabled
-        case .zeroPlayer:
+        case .zeroPlayer, .onlineMultiplayer:
             false
         }
     }
@@ -184,7 +196,7 @@ struct ContentView: View {
             return undoHistory.contains { $0.currentPlayer == .playerOne }
         case .twoPlayer:
             return !undoHistory.isEmpty
-        case .zeroPlayer:
+        case .zeroPlayer, .onlineMultiplayer:
             return false
         }
     }
@@ -201,6 +213,8 @@ struct ContentView: View {
             twoPlayerShowNumberLabels
         case .zeroPlayer:
             zeroPlayerShowNumberLabels
+        case .onlineMultiplayer:
+            onlineShowNumberLabels
         }
     }
 
@@ -246,6 +260,10 @@ struct ContentView: View {
             zeroPlayerOneName
         case (.zeroPlayer, .playerTwo):
             zeroPlayerTwoName
+        case (.onlineMultiplayer, .playerOne):
+            onlinePlayerOneName
+        case (.onlineMultiplayer, .playerTwo):
+            onlinePlayerTwoName
         }
     }
 
@@ -263,6 +281,10 @@ struct ContentView: View {
             zeroPlayerOneName = name
         case (.zeroPlayer, .playerTwo):
             zeroPlayerTwoName = name
+        case (.onlineMultiplayer, .playerOne):
+            onlinePlayerOneName = name
+        case (.onlineMultiplayer, .playerTwo):
+            onlinePlayerTwoName = name
         }
     }
 
@@ -282,6 +304,8 @@ struct ContentView: View {
         twoPlayerTwoName = legacyPlayerTwoName
         zeroPlayerOneName = legacyPlayerOneName
         zeroPlayerTwoName = legacyPlayerTwoName
+        onlinePlayerOneName = legacyPlayerOneName
+        onlinePlayerTwoName = legacyPlayerTwoName
         modeSpecificPlayerNamesMigrated = true
     }
 
@@ -291,7 +315,7 @@ struct ContentView: View {
             difficulty
         case .zeroPlayer:
             player == .playerOne ? zeroPlayerOneDifficulty : zeroPlayerTwoDifficulty
-        case .twoPlayer:
+        case .twoPlayer, .onlineMultiplayer:
             difficulty
         }
     }
@@ -306,12 +330,16 @@ struct ContentView: View {
             true
         case .singlePlayer:
             player == .playerTwo
-        case .twoPlayer:
+        case .twoPlayer, .onlineMultiplayer:
             false
         }
     }
 
     private var statusText: String {
+        if gameMode == .onlineMultiplayer, !game.isGameOver {
+            return onlineManager.statusMessage
+        }
+
         if game.isDraw {
             return "Draw game"
         }
@@ -454,6 +482,10 @@ struct ContentView: View {
             title = "2 Players"
             tint = Color.secondary
             accessibilityLabel = "Two player mode"
+        case .onlineMultiplayer:
+            title = "Online"
+            tint = Color.indigo
+            accessibilityLabel = "Online multiplayer mode"
         }
 
         return Text(title)
@@ -540,7 +572,7 @@ struct ContentView: View {
                 } label: {
                     Label("Reset Game", systemImage: "arrow.counterclockwise")
                 }
-                .disabled(isAnimatingMove)
+                .disabled(isAnimatingMove || gameMode == .onlineMultiplayer)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.title3.weight(.semibold))
@@ -563,6 +595,7 @@ struct ContentView: View {
                             .disabled(!isAIPlayAvailable)
                         Text("0 Player").tag(GameMode.zeroPlayer)
                             .disabled(!isAIPlayAvailable)
+                        Text("Online").tag(GameMode.onlineMultiplayer)
                     }
                     .pickerStyle(.segmented)
                     .onChange(of: gameMode) { oldMode, newMode in
@@ -622,6 +655,37 @@ struct ContentView: View {
                             }
 
                         Text("Undo rolls back the last completed move.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if gameMode == .onlineMultiplayer {
+                    Section("Game Center") {
+                        Text(onlineManager.statusMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        Button(onlineManager.isAuthenticated ? "Start Online Match" : "Sign In to Game Center") {
+                            if onlineManager.isAuthenticated {
+                                onlineManager.startMatch()
+                            } else {
+                                onlineManager.authenticateLocalPlayer()
+                            }
+                        }
+                        .disabled(onlineManager.isAuthenticated && !onlineManager.canStartMatch)
+
+                        if onlineManager.currentMatchID != nil {
+                            Button("Forfeit Online Match", role: .destructive) {
+                                onlineManager.forfeitCurrentMatch()
+                            }
+                        }
+                    }
+
+                    Section("Display") {
+                        Toggle("Show Numbers", isOn: $onlineShowNumberLabels)
+
+                        Text("Shows the stone counts in each pit and store.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -806,7 +870,7 @@ struct ContentView: View {
             difficulty == .impossible
         case .zeroPlayer:
             zeroPlayerOneDifficulty == .impossible || zeroPlayerTwoDifficulty == .impossible
-        case .twoPlayer:
+        case .twoPlayer, .onlineMultiplayer:
             false
         }
     }
@@ -1041,6 +1105,8 @@ struct ContentView: View {
             return game.owner(ofPitAt: index) == .playerOne
         case .zeroPlayer:
             return false
+        case .onlineMultiplayer:
+            return onlineManager.isLocalPlayersTurn && game.owner(ofPitAt: index) == onlineManager.localPlayerSide
         }
     }
 
@@ -1063,7 +1129,7 @@ struct ContentView: View {
             restoreIndex = undoHistory.lastIndex(where: { $0.currentPlayer == .playerOne })
         case .twoPlayer:
             restoreIndex = undoHistory.indices.last
-        case .zeroPlayer:
+        case .zeroPlayer, .onlineMultiplayer:
             restoreIndex = nil
         }
 
@@ -1160,6 +1226,10 @@ struct ContentView: View {
             isZeroPlayerPaused = true
         }
 
+        if newMode == .onlineMultiplayer {
+            applyPendingOnlineMatchIfNeeded()
+        }
+
         if newMode == .singlePlayer || (newMode == .zeroPlayer && !isZeroPlayerPaused) {
             Task {
                 await runAIMoveIfNeeded()
@@ -1224,6 +1294,8 @@ struct ContentView: View {
             savedTwoPlayerGameState
         case .zeroPlayer:
             savedZeroPlayerGameState
+        case .onlineMultiplayer:
+            savedOnlineGameState
         }
     }
 
@@ -1235,6 +1307,8 @@ struct ContentView: View {
             savedTwoPlayerGameState = data
         case .zeroPlayer:
             savedZeroPlayerGameState = data
+        case .onlineMultiplayer:
+            savedOnlineGameState = data
         }
     }
 
@@ -1443,6 +1517,7 @@ struct ContentView: View {
         guard game.canPlayPit(at: selectedIndex), !isAnimatingMove else { return }
 
         recordUndoSnapshotIfNeeded()
+        let movingPlayer = game.currentPlayer
         let path = game.sowingPath(from: selectedIndex)
         guard let sourceFrame = cellFrames[selectedIndex], !path.isEmpty else {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
@@ -1450,6 +1525,7 @@ struct ContentView: View {
             }
             recordCompletedGameIfNeeded()
             persistStableGameState()
+            handleOnlineMoveIfNeeded(from: selectedIndex, movingPlayer: movingPlayer)
             await runAIMoveIfNeeded()
             return
         }
@@ -1490,8 +1566,51 @@ struct ContentView: View {
         }
         recordCompletedGameIfNeeded()
         persistStableGameState()
+        handleOnlineMoveIfNeeded(from: selectedIndex, movingPlayer: movingPlayer)
 
         await runAIMoveIfNeeded()
+    }
+
+    private func handleOnlineMoveIfNeeded(from selectedIndex: Int, movingPlayer: Player) {
+        guard gameMode == .onlineMultiplayer else { return }
+        guard onlineManager.localPlayerSide == movingPlayer else { return }
+
+        if !game.isGameOver, game.currentPlayer == movingPlayer {
+            onlineManager.noteLocalExtraTurn()
+            return
+        }
+
+        onlineManager.sendTurn(
+            game: game,
+            lastMoveIndex: selectedIndex,
+            playerOneName: displayName(for: .playerOne),
+            playerTwoName: displayName(for: .playerTwo)
+        )
+    }
+
+    private func applyPendingOnlineMatchIfNeeded() {
+        guard let payload = onlineManager.pendingPayload else {
+            if gameMode == .onlineMultiplayer,
+               onlineManager.currentMatchID != nil,
+               game.pits.reduce(0, +) != 48 {
+                game.reset(startingPlayer: .playerOne)
+            }
+            return
+        }
+
+        onlinePlayerOneName = payload.playerOneName
+        onlinePlayerTwoName = payload.playerTwoName
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            game = payload.game.game
+            flyingStone = nil
+            isAnimatingMove = false
+            isAIMovePending = false
+            hasRecordedCurrentCompletedGame = false
+        }
+        onlineManager.clearPendingPayload()
+        recordCompletedGameIfNeeded()
+        persistStableGameState(for: .onlineMultiplayer)
     }
 
     @MainActor
