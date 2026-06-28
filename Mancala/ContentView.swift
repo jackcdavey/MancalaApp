@@ -392,7 +392,7 @@ struct ContentView: View {
             header(isPortrait: isPortrait)
                 .frame(height: headerHeight)
 
-            GlassEffectContainer(spacing: 16) {
+            boardContainer {
                 if isPortrait {
                     portraitBoard(pitHeight: portraitPitHeight, storeHeight: portraitStoreHeight)
                 } else {
@@ -423,6 +423,17 @@ struct ContentView: View {
                     .frame(height: statusHeight)
             }
         }
+    }
+
+    @ViewBuilder
+    private func boardContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        #if os(visionOS)
+        content()
+        #else
+        GlassEffectContainer(spacing: 16) {
+            content()
+        }
+        #endif
     }
 
     private var difficultyPill: some View {
@@ -491,7 +502,7 @@ struct ContentView: View {
                         .frame(width: 44, height: 44)
                         .playerFacingRotation(tableRotationDegrees)
                 }
-                .buttonStyle(.glass)
+                .mancalaGlassButtonStyle()
                 .disabled(!canUndoTurn)
                 .accessibilityLabel("Undo last turn")
             }
@@ -506,7 +517,7 @@ struct ContentView: View {
                         .frame(width: 44, height: 44)
                         .playerFacingRotation(tableRotationDegrees)
                 }
-                .buttonStyle(.glass)
+                .mancalaGlassButtonStyle()
                 .disabled(isAnimatingMove || game.isGameOver)
                 .accessibilityLabel(isZeroPlayerPaused ? "Play zero player game" : "Pause zero player game")
             }
@@ -537,7 +548,7 @@ struct ContentView: View {
                     .frame(width: 44, height: 44)
                     .playerFacingRotation(tableRotationDegrees)
             }
-            .buttonStyle(.glass)
+            .mancalaGlassButtonStyle()
             .accessibilityLabel("More options")
         }
     }
@@ -575,12 +586,10 @@ struct ContentView: View {
 
                 Section("Names") {
                     TextField("Player 1", text: currentPlayerOneNameBinding)
-                        .textInputAutocapitalization(.words)
-                        .disableAutocorrection(true)
+                        .mancalaNameTextFieldStyle()
 
                     TextField("Player 2", text: currentPlayerTwoNameBinding)
-                        .textInputAutocapitalization(.words)
-                        .disableAutocorrection(true)
+                        .mancalaNameTextFieldStyle()
 
                     Text("Leave a field blank to use its default name.")
                         .font(.footnote)
@@ -725,39 +734,9 @@ struct ContentView: View {
                                 }
 
                                 if impossibleSearchLimitMode == .positions {
-                                    Stepper(
-                                        value: impossibleSearchLimitBinding,
-                                        in: 100_000...100_000_000,
-                                        step: 100_000
-                                    ) {
-                                        HStack {
-                                            Text("Max positions")
-                                            Spacer()
-                                            TextField("Positions", value: impossibleSearchLimitBinding, format: .number)
-                                                .keyboardType(.numberPad)
-                                                .multilineTextAlignment(.trailing)
-                                                .textFieldStyle(.roundedBorder)
-                                                .frame(width: 136)
-                                        }
-                                    }
+                                    impossiblePositionsLimitStepper
                                 } else {
-                                    Stepper(
-                                        value: impossibleSearchTimeLimitBinding,
-                                        in: 1...120,
-                                        step: 1
-                                    ) {
-                                        HStack {
-                                            Text("Max time")
-                                            Spacer()
-                                            TextField("Seconds", value: impossibleSearchTimeLimitBinding, format: .number)
-                                                .keyboardType(.numberPad)
-                                                .multilineTextAlignment(.trailing)
-                                                .textFieldStyle(.roundedBorder)
-                                                .frame(width: 82)
-                                            Text("s")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
+                                    impossibleTimeLimitStepper
                                 }
 
                                 Text(impossibleSearchLimitMode.description)
@@ -787,6 +766,38 @@ struct ContentView: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    private var impossiblePositionsLimitStepper: some View {
+        Stepper(
+            value: impossibleSearchLimitBinding,
+            in: 100_000...100_000_000,
+            step: 100_000
+        ) {
+            HStack {
+                Text("Max positions")
+                Spacer()
+                TextField("Positions", value: impossibleSearchLimitBinding, format: .number)
+                    .mancalaNumberTextFieldStyle(width: 136)
+            }
+        }
+    }
+
+    private var impossibleTimeLimitStepper: some View {
+        Stepper(
+            value: impossibleSearchTimeLimitBinding,
+            in: 1...120,
+            step: 1
+        ) {
+            HStack {
+                Text("Max time")
+                Spacer()
+                TextField("Seconds", value: impossibleSearchTimeLimitBinding, format: .number)
+                    .mancalaNumberTextFieldStyle(width: 82)
+                Text("s")
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var shouldShowImpossibleSearchSettings: Bool {
@@ -866,7 +877,7 @@ struct ContentView: View {
                 .recordCellFrame(id: game.storeIndex(for: .playerOne))
         }
         .padding(14)
-        .glassEffect(.regular.tint(boardTint).interactive(), in: .rect(cornerRadius: 28))
+        .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, interactive: true)
         .overlay {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .stroke(quietStroke, lineWidth: 1)
@@ -898,7 +909,7 @@ struct ContentView: View {
                 .recordCellFrame(id: game.storeIndex(for: .playerOne))
         }
         .padding(12)
-        .glassEffect(.regular.tint(boardTint).interactive(), in: .rect(cornerRadius: 28))
+        .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, interactive: true)
         .overlay {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .stroke(quietStroke, lineWidth: 1)
@@ -963,7 +974,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .foregroundStyle(primaryText)
         .multilineTextAlignment(.center)
-        .glassEffect(.regular.tint(storeTint), in: .rect(cornerRadius: 18))
+        .mancalaGlassEffect(tint: storeTint, cornerRadius: 18)
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(quietStroke, lineWidth: 1)
@@ -1009,7 +1020,7 @@ struct ContentView: View {
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: minHeight)
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .glassEffect(.regular.tint(isPlayable ? playableTint : pitTint).interactive(isPlayable), in: .rect(cornerRadius: 20))
+            .mancalaGlassEffect(tint: isPlayable ? playableTint : pitTint, cornerRadius: 20, interactive: isPlayable)
             .overlay {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .stroke(isPlayable ? strongStroke : quietStroke, lineWidth: isPlayable ? 1.5 : 1)
@@ -1371,7 +1382,7 @@ struct ContentView: View {
             }
             .playerFacingRotation(tableRotationDegrees)
             .padding(.horizontal, 14)
-            .glassEffect(.regular.tint(tint), in: .rect(cornerRadius: 20))
+            .mancalaGlassEffect(tint: tint, cornerRadius: 20)
             .overlay {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .stroke(stroke, lineWidth: isCurrent ? 1.5 : 1)
@@ -1391,7 +1402,7 @@ struct ContentView: View {
             .playerFacingRotation(tableRotationDegrees)
             .frame(minHeight: 148)
             .padding(10)
-            .glassEffect(.regular.tint(tint), in: .rect(cornerRadius: 24))
+            .mancalaGlassEffect(tint: tint, cornerRadius: 24)
             .overlay {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .stroke(stroke, lineWidth: isCurrent ? 1.5 : 1)
@@ -1679,6 +1690,53 @@ struct ContentView: View {
         let base = offsets[index % offsets.count]
         let layer = CGFloat(index / offsets.count) * 2.2
         return CGSize(width: base.width + layer, height: base.height - layer)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func mancalaGlassEffect(tint: Color, cornerRadius: CGFloat, interactive: Bool = false) -> some View {
+        #if os(visionOS)
+        self.background {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(tint)
+        }
+        #else
+        self.glassEffect(.regular.tint(tint).interactive(interactive), in: .rect(cornerRadius: cornerRadius))
+        #endif
+    }
+
+    @ViewBuilder
+    func mancalaGlassButtonStyle() -> some View {
+        #if os(visionOS)
+        self.buttonStyle(.bordered)
+        #else
+        self.buttonStyle(.glass)
+        #endif
+    }
+
+    @ViewBuilder
+    func mancalaNameTextFieldStyle() -> some View {
+        #if os(iOS)
+        self.textInputAutocapitalization(.words)
+            .disableAutocorrection(true)
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func mancalaNumberTextFieldStyle(width: CGFloat) -> some View {
+        #if os(iOS)
+        self.keyboardType(.numberPad)
+            .multilineTextAlignment(.trailing)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: width)
+        #else
+        self.multilineTextAlignment(.trailing)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: width)
+        #endif
     }
 }
 

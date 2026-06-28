@@ -1,7 +1,6 @@
 import SwiftUI
-import Playgrounds
 
-@main struct MyApp: App {
+@main struct MancalaApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
