@@ -1,5 +1,4 @@
 import SwiftUI
-import FoundationModels
 
 struct ContentView: View {
     private static let defaultImpossibleSearchLimit = 10_000_000
@@ -13,6 +12,7 @@ struct ContentView: View {
     @State private var hapticTrigger = 0
     @State private var endGameAnimationPulse = false
     @AppStorage("gameMode") private var gameMode = GameMode.twoPlayer
+    @AppStorage("visualTheme") private var visualTheme = VisualTheme.liquidGlass
     @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = false
     @AppStorage("difficulty") private var difficulty = AIDifficulty.medium
     @AppStorage("zeroPlayerOneDifficulty") private var zeroPlayerOneDifficulty = AIDifficulty.medium
@@ -61,8 +61,6 @@ struct ContentView: View {
     @AppStorage("completedGameHistory") private var completedGameHistoryData = Data()
     @AppStorage("savedGameState") private var legacySavedGameState = Data()
 
-    private let model = SystemLanguageModel.default
-
     private var isDarkMode: Bool {
         colorScheme == .dark
     }
@@ -96,6 +94,7 @@ struct ContentView: View {
                 }
             }
         }
+        .environment(\.mancalaVisualTheme, visualTheme)
         .animation(.spring(response: 0.44, dampingFraction: 0.78), value: game.isGameOver)
         .sensoryFeedback(.selection, trigger: hapticTrigger)
         .sheet(isPresented: $isSettingsPresented) {
@@ -142,62 +141,85 @@ struct ContentView: View {
     }
 
     private var lightBackgroundColors: [Color] {
-        [
-            Color(red: 0.93, green: 0.97, blue: 1.00),
-            Color(red: 0.82, green: 0.90, blue: 0.96),
-            Color(red: 0.92, green: 0.90, blue: 0.84)
+        if visualTheme == .calligraphy {
+            return [.white, .white]
+        }
+
+        return [
+            Color(red: 0.95, green: 0.97, blue: 1.00),
+            Color(red: 0.87, green: 0.91, blue: 0.97),
+            Color(red: 0.80, green: 0.86, blue: 0.94)
         ]
     }
 
     private var darkBackgroundColors: [Color] {
-        [
-            Color(red: 0.06, green: 0.08, blue: 0.11),
-            Color(red: 0.10, green: 0.14, blue: 0.19),
-            Color(red: 0.16, green: 0.15, blue: 0.12)
+        if visualTheme == .calligraphy {
+            return [.white, .white]
+        }
+
+        return [
+            Color(red: 0.04, green: 0.06, blue: 0.09),
+            Color(red: 0.08, green: 0.11, blue: 0.16),
+            Color(red: 0.12, green: 0.16, blue: 0.22)
         ]
     }
 
     private var primaryText: Color {
-        isDarkMode ? .white : Color(red: 0.08, green: 0.10, blue: 0.12)
+        if visualTheme == .calligraphy {
+            return .black
+        }
+        return isDarkMode ? .white : Color(red: 0.08, green: 0.10, blue: 0.12)
     }
 
     private var secondaryText: Color {
-        primaryText.opacity(isDarkMode ? 0.72 : 0.64)
+        primaryText.opacity(visualTheme == .calligraphy ? 0.58 : (isDarkMode ? 0.72 : 0.64))
     }
 
     private var boardTint: Color {
-        isDarkMode ? Color.white.opacity(0.08) : Color.white.opacity(0.30)
+        if visualTheme == .calligraphy {
+            return .white
+        }
+        return isDarkMode ? Color.white.opacity(0.08) : Color.white.opacity(0.30)
     }
 
     private var pitTint: Color {
-        isDarkMode ? Color.white.opacity(0.07) : Color.white.opacity(0.22)
+        if visualTheme == .calligraphy {
+            return .white
+        }
+        return isDarkMode ? Color.white.opacity(0.07) : Color.white.opacity(0.22)
     }
 
     private var playableTint: Color {
-        isDarkMode ? Color.cyan.opacity(0.20) : Color.blue.opacity(0.18)
+        if visualTheme == .calligraphy {
+            return .white
+        }
+        return isDarkMode ? Color.cyan.opacity(0.14) : Color.blue.opacity(0.10)
     }
 
     private var storeTint: Color {
-        isDarkMode ? Color.white.opacity(0.08) : Color.white.opacity(0.24)
+        if visualTheme == .calligraphy {
+            return .white
+        }
+        return isDarkMode ? Color.white.opacity(0.08) : Color.white.opacity(0.24)
     }
 
     private var currentStoreTint: Color {
-        isDarkMode ? Color.green.opacity(0.22) : Color.green.opacity(0.18)
+        if visualTheme == .calligraphy {
+            return .white
+        }
+        return isDarkMode ? Color.green.opacity(0.16) : Color.green.opacity(0.10)
     }
 
-    private var quietStroke: Color {
-        isDarkMode ? Color.white.opacity(0.18) : Color.black.opacity(0.16)
+    private func displayFont(size: CGFloat, weight: Font.Weight) -> Font {
+        .system(size: size, weight: weight, design: visualTheme == .calligraphy ? .serif : .rounded)
     }
 
-    private var strongStroke: Color {
-        isDarkMode ? Color.cyan.opacity(0.58) : Color.blue.opacity(0.56)
+    private func countFont(size: CGFloat, weight: Font.Weight = .semibold) -> Font {
+        displayFont(size: size, weight: weight).monospacedDigit()
     }
 
     private var isAIPlayAvailable: Bool {
-        if case .available = model.availability {
-            return true
-        }
-        return false
+        true
     }
 
     private var shouldShowStatusPanel: Bool {
@@ -460,18 +482,10 @@ struct ContentView: View {
     }
 
     private var modelAvailabilityMessage: String? {
-        switch model.availability {
-        case .available:
-            return nil
-        case .unavailable(.deviceNotEligible):
-            return "AI play requires a device that supports Apple Intelligence."
-        case .unavailable(.appleIntelligenceNotEnabled):
-            return "Turn on Apple Intelligence in Settings to use AI play."
-        case .unavailable(.modelNotReady):
-            return "The on-device model is still getting ready. Try again later."
-        case .unavailable:
-            return "AI play is unavailable on this device right now."
+        if #available(iOS 27.0, *) {
+            return FoundationModelAIMoveProvider.availabilityMessage
         }
+        return "AI play uses local heuristics on iOS 26."
     }
 
     private func gameContent(isPortrait: Bool, availableHeight: CGFloat) -> some View {
@@ -512,6 +526,11 @@ struct ContentView: View {
                     animatedStone(flyingStone)
                 }
             }
+            .rotation3DEffect(
+                .degrees(visualTheme == .liquidGlass ? 8 : 0),
+                axis: (x: 1, y: 0, z: 0),
+                perspective: 0.30
+            )
 
             if isPortrait && shouldShowStatusPanel {
                 statusPanel
@@ -525,7 +544,11 @@ struct ContentView: View {
         #if os(visionOS)
         content()
         #else
-        GlassEffectContainer(spacing: 16) {
+        if #available(iOS 27.0, *) {
+            GlassEffectContainer(spacing: 16) {
+                content()
+            }
+        } else {
             content()
         }
         #endif
@@ -544,7 +567,7 @@ struct ContentView: View {
 
                 Image(systemName: endGameSymbolName)
                     .font(.system(size: 38, weight: .bold))
-                    .foregroundStyle(game.isDraw ? Color.secondary : Color.yellow)
+                    .foregroundStyle(game.isDraw ? Color.secondary : (visualTheme == .calligraphy ? Color.black : Color.yellow))
                     .scaleEffect(endGameAnimationPulse ? 1.08 : 0.96)
                     .shadow(color: .black.opacity(isDarkMode ? 0.34 : 0.16), radius: 8, x: 0, y: 4)
             }
@@ -553,7 +576,7 @@ struct ContentView: View {
 
             VStack(spacing: 6) {
                 Text(endGameTitle)
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .font(displayFont(size: 34, weight: .bold))
                     .foregroundStyle(primaryText)
                     .multilineTextAlignment(.center)
                     .contentTransition(.numericText())
@@ -575,19 +598,11 @@ struct ContentView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .buttonStyle(.plain)
-            .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, interactive: true)
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(strongStroke, lineWidth: 1)
-            }
+            .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, role: .control, interactive: true)
         }
         .padding(24)
         .frame(maxWidth: 360)
-        .mancalaGlassEffect(tint: storeTint, cornerRadius: 28)
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(quietStroke, lineWidth: 1)
-        }
+        .mancalaGlassEffect(tint: storeTint, cornerRadius: 28, role: .panel, seed: 23)
         .shadow(color: .black.opacity(isDarkMode ? 0.36 : 0.18), radius: 24, x: 0, y: 18)
         .accessibilityElement(children: .contain)
     }
@@ -631,11 +646,14 @@ struct ContentView: View {
             .padding(.vertical, 5)
             .background {
                 Capsule(style: .continuous)
-                    .fill(tint.opacity(isDarkMode ? 0.24 : 0.18))
+                    .fill(visualTheme == .calligraphy ? Color.white : tint.opacity(isDarkMode ? 0.24 : 0.18))
             }
             .overlay {
                 Capsule(style: .continuous)
-                    .stroke(tint.opacity(isDarkMode ? 0.72 : 0.58), lineWidth: 1)
+                    .stroke(
+                        visualTheme == .calligraphy ? Color.black.opacity(0.65) : tint.opacity(isDarkMode ? 0.72 : 0.58),
+                        lineWidth: 1
+                    )
             }
             .accessibilityLabel(accessibilityLabel)
     }
@@ -644,8 +662,16 @@ struct ContentView: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Mancala")
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
+                    .font(displayFont(size: 34, weight: .semibold))
                     .foregroundStyle(primaryText)
+
+                if visualTheme == .calligraphy {
+                    InkDash()
+                        .fill(Color.black.opacity(0.82))
+                        .frame(width: 92, height: 5)
+                        .padding(.bottom, 1)
+                        .accessibilityHidden(true)
+                }
 
                 difficultyPill
             }
@@ -737,6 +763,19 @@ struct ContentView: View {
     private var settingsSheet: some View {
         NavigationStack {
             Form {
+                Section("Appearance") {
+                    Picker("Theme", selection: $visualTheme) {
+                        ForEach(VisualTheme.allCases) { theme in
+                            Text(theme.title).tag(theme)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(visualTheme == .calligraphy ? "Plain black and white, with hand-inked brushstrokes for the board and pits." : "A frosted glass board with depth, viewed at a slight angle.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Players") {
                     Picker("Mode", selection: $gameMode) {
                         Text("2 Players").tag(GameMode.twoPlayer)
@@ -809,12 +848,20 @@ struct ContentView: View {
                     }
                 }
 
-                if gameMode == .onlineMultiplayer {
-                    Section("Game Center") {
-                        Text(onlineManager.statusMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                Section("Game Center") {
+                    Text(onlineManager.statusMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
+                    Button(onlineManager.isAuthenticated ? "View Achievements" : "Sign In to Game Center") {
+                        if onlineManager.isAuthenticated {
+                            onlineManager.showAchievements()
+                        } else {
+                            onlineManager.authenticateLocalPlayer()
+                        }
+                    }
+
+                    if gameMode == .onlineMultiplayer {
                         Button(onlineManager.isAuthenticated ? "Start Online Match" : "Sign In to Game Center") {
                             if onlineManager.isAuthenticated {
                                 onlineManager.startMatch()
@@ -830,7 +877,9 @@ struct ContentView: View {
                             }
                         }
                     }
+                }
 
+                if gameMode == .onlineMultiplayer {
                     Section("Display") {
                         Toggle("Show Numbers", isOn: $onlineShowNumberLabels)
 
@@ -1126,11 +1175,7 @@ struct ContentView: View {
                 .recordCellFrame(id: game.storeIndex(for: .playerOne))
         }
         .padding(14)
-        .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, interactive: true)
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(quietStroke, lineWidth: 1)
-        }
+        .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, role: .board, interactive: true, seed: 40)
     }
 
     private func portraitBoard(pitHeight: CGFloat, storeHeight: CGFloat) -> some View {
@@ -1158,11 +1203,7 @@ struct ContentView: View {
                 .recordCellFrame(id: game.storeIndex(for: .playerOne))
         }
         .padding(12)
-        .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, interactive: true)
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(quietStroke, lineWidth: 1)
-        }
+        .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, role: .board, interactive: true, seed: 41)
     }
 
     private var statusPanel: some View {
@@ -1223,11 +1264,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .foregroundStyle(primaryText)
         .multilineTextAlignment(.center)
-        .mancalaGlassEffect(tint: storeTint, cornerRadius: 18)
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(quietStroke, lineWidth: 1)
-        }
+        .mancalaGlassEffect(tint: storeTint, cornerRadius: 18, role: .panel)
         .accessibilityHint("Tap to show or hide AI thinking details")
     }
 
@@ -1260,7 +1297,7 @@ struct ContentView: View {
 
                 if shouldShowNumberLabels {
                     Text("\(game.pits[index])")
-                        .font(.system(size: countSize, weight: .semibold, design: .rounded).monospacedDigit())
+                        .font(countFont(size: countSize))
                         .foregroundStyle(primaryText)
                         .contentTransition(.numericText())
                 }
@@ -1270,19 +1307,23 @@ struct ContentView: View {
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: minHeight)
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .mancalaGlassEffect(tint: isPlayable ? playableTint : pitTint, cornerRadius: 20, interactive: isPlayable)
-            .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(isPlayable ? strongStroke : quietStroke, lineWidth: isPlayable ? 1.5 : 1)
-            }
+            .mancalaGlassEffect(tint: isPlayable ? playableTint : pitTint, cornerRadius: 20, role: .pit, interactive: isPlayable, seed: index)
             .overlay {
                 if isHinted {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.yellow.opacity(isDarkMode ? 0.94 : 0.88), lineWidth: 3)
-                        .shadow(color: Color.yellow.opacity(0.82), radius: 12, x: 0, y: 0)
-                        .shadow(color: Color.orange.opacity(0.42), radius: 22, x: 0, y: 0)
-                        .transition(.opacity.combined(with: .scale(scale: 1.03)))
-                        .allowsHitTesting(false)
+                    if visualTheme == .calligraphy {
+                        InkRing(seed: index &+ 9, exponent: 2.0, weightFraction: 0.030)
+                            .fill(Color.black.opacity(0.9), style: FillStyle(eoFill: true))
+                            .padding(-6)
+                            .transition(.opacity.combined(with: .scale(scale: 1.03)))
+                            .allowsHitTesting(false)
+                    } else {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(Color.yellow.opacity(isDarkMode ? 0.94 : 0.88), lineWidth: 3)
+                            .shadow(color: Color.yellow.opacity(0.82), radius: 12, x: 0, y: 0)
+                            .shadow(color: Color.orange.opacity(0.42), radius: 22, x: 0, y: 0)
+                            .transition(.opacity.combined(with: .scale(scale: 1.03)))
+                            .allowsHitTesting(false)
+                    }
                 }
             }
         }
@@ -1610,6 +1651,12 @@ struct ContentView: View {
         if let data = try? JSONEncoder().encode(history) {
             completedGameHistoryData = data
             hasRecordedCurrentCompletedGame = true
+            GameCenterAchievements.reportCompletedGame(
+                game,
+                gameMode: gameMode,
+                difficulty: difficulty,
+                localPlayerSide: onlineManager.localPlayerSide
+            )
         }
     }
 
@@ -1697,7 +1744,6 @@ struct ContentView: View {
     private func storeView(owner: Player, compact: Bool) -> some View {
         let isCurrent = owner == game.currentPlayer && !game.isGameOver
         let tint = isCurrent ? currentStoreTint : storeTint
-        let stroke = isCurrent ? Color.green.opacity(isDarkMode ? 0.60 : 0.54) : quietStroke
 
         if compact {
             HStack(spacing: 12) {
@@ -1706,7 +1752,7 @@ struct ContentView: View {
 
                 if shouldShowNumberLabels {
                     Text("\(game.storeCount(for: owner))")
-                        .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                        .font(countFont(size: 30))
                         .foregroundStyle(primaryText)
                         .frame(width: 48)
                         .contentTransition(.numericText())
@@ -1714,11 +1760,7 @@ struct ContentView: View {
             }
             .playerFacingRotation(tableRotationDegrees)
             .padding(.horizontal, 14)
-            .mancalaGlassEffect(tint: tint, cornerRadius: 20)
-            .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(stroke, lineWidth: isCurrent ? 1.5 : 1)
-            }
+            .mancalaGlassEffect(tint: tint, cornerRadius: 20, role: .store, interactive: isCurrent, seed: game.storeIndex(for: owner))
         } else {
             VStack(spacing: 7) {
                 stoneCluster(count: game.storeCount(for: owner))
@@ -1726,7 +1768,7 @@ struct ContentView: View {
 
                 if shouldShowNumberLabels {
                     Text("\(game.storeCount(for: owner))")
-                        .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+                        .font(countFont(size: 34))
                         .foregroundStyle(primaryText)
                         .contentTransition(.numericText())
                 }
@@ -1734,20 +1776,29 @@ struct ContentView: View {
             .playerFacingRotation(tableRotationDegrees)
             .frame(minHeight: 148)
             .padding(10)
-            .mancalaGlassEffect(tint: tint, cornerRadius: 24)
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(stroke, lineWidth: isCurrent ? 1.5 : 1)
-            }
+            .mancalaGlassEffect(tint: tint, cornerRadius: 24, role: .store, interactive: isCurrent, seed: game.storeIndex(for: owner))
         }
+    }
+
+    private func stoneView(colorIndex: Int, diameter: CGFloat) -> some View {
+        Circle()
+            .fill(stoneColor(for: colorIndex).gradient)
+            .frame(width: diameter, height: diameter)
+            .overlay {
+                if visualTheme == .liquidGlass {
+                    Circle()
+                        .fill(Color.white.opacity(0.85))
+                        .frame(width: diameter * 0.28, height: diameter * 0.28)
+                        .offset(x: -diameter * 0.20, y: -diameter * 0.22)
+                        .blur(radius: 0.4)
+                }
+            }
     }
 
     private func stoneCluster(count: Int) -> some View {
         ZStack {
             ForEach(0..<min(count, 18), id: \.self) { index in
-                Circle()
-                    .fill(stoneColor(for: index).gradient)
-                    .frame(width: 11, height: 11)
+                stoneView(colorIndex: index, diameter: 11)
                     .offset(stoneOffset(for: index))
                     .shadow(color: isDarkMode ? .black.opacity(0.30) : .black.opacity(0.18), radius: 1.5, x: 0, y: 1)
                     .transition(.scale.combined(with: .opacity))
@@ -1758,14 +1809,8 @@ struct ContentView: View {
     }
 
     private func animatedStone(_ stone: FlyingStone) -> some View {
-        Circle()
-            .fill(stoneColor(for: stone.colorIndex).gradient)
-            .frame(width: 18, height: 18)
+        stoneView(colorIndex: stone.colorIndex, diameter: 18)
             .shadow(color: isDarkMode ? .black.opacity(0.42) : .black.opacity(0.24), radius: 5, x: 0, y: 3)
-            .overlay {
-                Circle()
-                    .stroke(Color.white.opacity(isDarkMode ? 0.32 : 0.46), lineWidth: 1)
-            }
             .position(stone.position)
             .allowsHitTesting(false)
     }
@@ -1777,11 +1822,17 @@ struct ContentView: View {
         recordUndoSnapshotIfNeeded()
         hintedPitIndex = nil
         let movingPlayer = game.currentPlayer
+        let moveAchievementResult = moveAchievementResult(for: selectedIndex, movingPlayer: movingPlayer)
         let path = game.sowingPath(from: selectedIndex)
         guard let sourceFrame = cellFrames[selectedIndex], !path.isEmpty else {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 game.playPit(at: selectedIndex)
             }
+            GameCenterAchievements.reportMove(
+                moveAchievementResult,
+                gameMode: gameMode,
+                localPlayerSide: onlineManager.localPlayerSide
+            )
             recordCompletedGameIfNeeded()
             persistStableGameState()
             handleOnlineMoveIfNeeded(from: selectedIndex, movingPlayer: movingPlayer)
@@ -1823,11 +1874,39 @@ struct ContentView: View {
             game.finishAnimatedMove(lastIndex: lastIndex, captureAlreadyApplied: animatedCapture)
             isAnimatingMove = false
         }
+        GameCenterAchievements.reportMove(
+            moveAchievementResult,
+            gameMode: gameMode,
+            localPlayerSide: onlineManager.localPlayerSide
+        )
         recordCompletedGameIfNeeded()
         persistStableGameState()
         handleOnlineMoveIfNeeded(from: selectedIndex, movingPlayer: movingPlayer)
 
         await runAIMoveIfNeeded()
+    }
+
+    private func moveAchievementResult(for selectedIndex: Int, movingPlayer: Player) -> MancalaMoveAchievementResult {
+        var simulatedGame = game
+        let path = simulatedGame.sowingPath(from: selectedIndex)
+        guard let lastIndex = path.last else {
+            return MancalaMoveAchievementResult(movingPlayer: movingPlayer, capturedStones: 0, earnedExtraTurn: false)
+        }
+
+        simulatedGame.beginAnimatedMove(from: selectedIndex)
+        for index in path {
+            simulatedGame.depositStone(at: index)
+        }
+
+        let capturedStones = simulatedGame.captureMove(afterLandingAt: lastIndex)?.capturedStones ?? 0
+        simulatedGame.finishAnimatedMove(lastIndex: lastIndex)
+        let earnedExtraTurn = !simulatedGame.isGameOver && simulatedGame.currentPlayer == movingPlayer
+
+        return MancalaMoveAchievementResult(
+            movingPlayer: movingPlayer,
+            capturedStones: capturedStones,
+            earnedExtraTurn: earnedExtraTurn
+        )
     }
 
     private func handleOnlineMoveIfNeeded(from selectedIndex: Int, movingPlayer: Player) {
@@ -1967,26 +2046,71 @@ struct ContentView: View {
             return await searchTask.value ?? legalPits.first
         }
 
-        do {
-            appendAIThought("Requesting on-device model move.")
-            let session = LanguageModelSession()
-            let response = try await session.respond(
-                to: aiPrompt(for: player, difficulty: difficulty, legalPits: legalPits),
-                generating: AIMancalaMove.self
-            )
-            let selectedPit = response.content.pitIndex
+        if #available(iOS 27.0, *), FoundationModelAIMoveProvider.isAvailable {
+            do {
+                appendAIThought("Requesting on-device model move.")
+                let selectedPit = try await FoundationModelAIMoveProvider.choosePit(
+                    prompt: aiPrompt(for: player, difficulty: difficulty, legalPits: legalPits)
+                )
 
-            if legalPits.contains(selectedPit) {
-                return selectedPit
+                if legalPits.contains(selectedPit) {
+                    return selectedPit
+                }
+
+                appendAIThought("Model returned illegal pit \(selectedPit); using heuristic fallback.")
+            } catch {
+                appendAIThought("Model request failed; using heuristic fallback.")
             }
-
-            appendAIThought("Model returned illegal pit \(selectedPit); using fallback.")
-        } catch {
-            appendAIThought("Model request failed; using fallback.")
-            return legalPits.first
+        } else {
+            appendAIThought("On-device model is unavailable; using heuristic move selection.")
         }
 
-        return legalPits.first
+        return heuristicAIPit(for: player, difficulty: difficulty, legalPits: legalPits)
+    }
+
+    private func heuristicAIPit(for player: Player, difficulty: AIDifficulty, legalPits: [Int]) -> Int? {
+        let rankedMoves = legalPits.map { pitIndex in
+            var simulatedGame = game
+            let startingStore = simulatedGame.storeCount(for: player)
+            let opponentStartingStore = simulatedGame.storeCount(for: player.opponent)
+            let path = simulatedGame.sowingPath(from: pitIndex)
+            let lastIndex = path.last
+            let capturedStones = lastIndex.flatMap { simulatedGame.captureMove(afterLandingAt: $0)?.capturedStones } ?? 0
+            simulatedGame.playPit(at: pitIndex)
+
+            let storeGain = simulatedGame.storeCount(for: player) - startingStore
+            let opponentStoreGain = simulatedGame.storeCount(for: player.opponent) - opponentStartingStore
+            let extraTurnBonus = simulatedGame.currentPlayer == player && !simulatedGame.isGameOver ? 18 : 0
+            let winBonus = simulatedGame.winner == player ? 1_000 : 0
+            let drawPenalty = simulatedGame.isDraw ? 8 : 0
+            let lossPenalty = simulatedGame.winner == player.opponent ? 1_000 : 0
+            let captureBonus = capturedStones * 5
+            let storeAdvantage = simulatedGame.storeCount(for: player) - simulatedGame.storeCount(for: player.opponent)
+            let sideBalance = player == .playerOne
+                ? simulatedGame.pits[0...5].reduce(0, +) - simulatedGame.pits[7...12].reduce(0, +)
+                : simulatedGame.pits[7...12].reduce(0, +) - simulatedGame.pits[0...5].reduce(0, +)
+
+            let score: Int
+            switch difficulty {
+            case .easy:
+                score = storeGain + extraTurnBonus / 3 + captureBonus / 4
+            case .medium:
+                score = storeGain * 4 + extraTurnBonus + captureBonus + storeAdvantage * 2
+            case .hard:
+                score = storeGain * 6 + extraTurnBonus + captureBonus + storeAdvantage * 4 + sideBalance - opponentStoreGain * 3 + winBonus - drawPenalty - lossPenalty
+            case .impossible:
+                score = storeGain * 8 + extraTurnBonus + captureBonus + storeAdvantage * 5 + sideBalance + winBonus - drawPenalty - lossPenalty
+            }
+
+            return (pitIndex: pitIndex, score: score)
+        }
+
+        return rankedMoves.max { lhs, rhs in
+            if lhs.score == rhs.score {
+                return lhs.pitIndex < rhs.pitIndex
+            }
+            return lhs.score < rhs.score
+        }?.pitIndex
     }
 
     private func aiPrompt(for player: Player, difficulty: AIDifficulty, legalPits: [Int]) -> String {
@@ -2050,6 +2174,17 @@ struct ContentView: View {
     }
 
     private func stoneColor(for index: Int) -> Color {
+        if visualTheme == .calligraphy {
+            let inkWash = [
+                Color.black,
+                Color(red: 0.12, green: 0.12, blue: 0.12),
+                Color(red: 0.22, green: 0.22, blue: 0.22),
+                Color(red: 0.34, green: 0.34, blue: 0.34),
+                Color(red: 0.06, green: 0.06, blue: 0.06)
+            ]
+            return inkWash[index % inkWash.count]
+        }
+
         let colors = [
             Color(red: 0.13, green: 0.42, blue: 0.92),
             Color(red: 0.95, green: 0.55, blue: 0.16),
@@ -2072,26 +2207,414 @@ struct ContentView: View {
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func mancalaGlassEffect(tint: Color, cornerRadius: CGFloat, interactive: Bool = false) -> some View {
-        #if os(visionOS)
-        self.background {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(tint)
+/// A closed brush-stroke ring with hand-drawn wobble and variable ink weight.
+/// `exponent` shapes the ring: 2 is an ellipse, higher values approach a rounded rectangle.
+private struct InkRing: Shape {
+    var seed: Int
+    var exponent: Double
+    var weightFraction: Double
+    var wobble: Double = 0.016
+
+    func path(in rect: CGRect) -> Path {
+        guard rect.width > 4, rect.height > 4 else { return Path() }
+
+        let steps = 110
+        let minDimension = min(rect.width, rect.height)
+        let baseWeight = min(max(minDimension * weightFraction, 1.1), 6.5)
+        let phaseOne = Double((seed &* 73) % 628) / 100
+        let phaseTwo = Double((seed &* 131) % 628) / 100
+        let phaseThree = Double((seed &* 197) % 628) / 100
+
+        let inset = baseWeight * 0.9 + minDimension * wobble
+        let a = rect.width / 2 - inset
+        let b = rect.height / 2 - inset
+        let e = 2.0 / exponent
+
+        var outerPoints: [CGPoint] = []
+        var innerPoints: [CGPoint] = []
+        outerPoints.reserveCapacity(steps)
+        innerPoints.reserveCapacity(steps)
+
+        for step in 0..<steps {
+            let theta = Double(step) / Double(steps) * 2 * .pi
+            let cosine = cos(theta)
+            let sine = sin(theta)
+            let x = a * pow(abs(cosine), e) * (cosine < 0 ? -1 : 1)
+            let y = b * pow(abs(sine), e) * (sine < 0 ? -1 : 1)
+            let length = max(sqrt(x * x + y * y), 0.001)
+            let unitX = x / length
+            let unitY = y / length
+            let sway = 1 + wobble * (0.62 * sin(2 * theta + phaseOne) + 0.38 * sin(5 * theta + phaseTwo))
+            let halfWeight = baseWeight * max(0.30, 1 + 0.42 * sin(3 * theta + phaseThree) + 0.18 * sin(7 * theta + phaseOne)) / 2
+            outerPoints.append(CGPoint(x: rect.midX + x * sway + unitX * halfWeight, y: rect.midY + y * sway + unitY * halfWeight))
+            innerPoints.append(CGPoint(x: rect.midX + x * sway - unitX * halfWeight, y: rect.midY + y * sway - unitY * halfWeight))
         }
-        #else
-        self.glassEffect(.regular.tint(tint).interactive(interactive), in: .rect(cornerRadius: cornerRadius))
-        #endif
+
+        var path = Path()
+        path.addLines(outerPoints)
+        path.closeSubpath()
+        path.addLines(Array(innerPoints.reversed()))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// A brush-stroke rounded-rectangle frame with hand-drawn wobble and variable ink weight.
+/// Unlike `InkRing`, it hugs the rectangle at any aspect ratio.
+private struct InkFrame: Shape {
+    var seed: Int
+    var cornerRadius: CGFloat
+    var weightFraction: Double
+    var wobble: Double = 0.012
+
+    func path(in rect: CGRect) -> Path {
+        guard rect.width > 8, rect.height > 8 else { return Path() }
+
+        let steps = 170
+        let minDimension = Double(min(rect.width, rect.height))
+        let baseWeight = min(max(minDimension * weightFraction, 1.1), 6.5)
+        let wobbleAmplitude = minDimension * wobble
+        let phaseOne = Double((seed &* 73) % 628) / 100
+        let phaseTwo = Double((seed &* 131) % 628) / 100
+        let phaseThree = Double((seed &* 197) % 628) / 100
+
+        let margin = baseWeight * 0.9 + wobbleAmplitude
+        let inner = rect.insetBy(dx: margin, dy: margin)
+        let radius = Double(min(cornerRadius, min(inner.width, inner.height) / 2))
+        let straightWidth = Double(inner.width) - 2 * radius
+        let straightHeight = Double(inner.height) - 2 * radius
+        let arcLength = Double.pi * radius / 2
+        let perimeter = 2 * straightWidth + 2 * straightHeight + 4 * arcLength
+
+        var outerPoints: [CGPoint] = []
+        var innerPoints: [CGPoint] = []
+        outerPoints.reserveCapacity(steps)
+        innerPoints.reserveCapacity(steps)
+
+        for step in 0..<steps {
+            let distance = Double(step) / Double(steps) * perimeter
+            let (point, normal) = pointAndNormal(
+                at: distance,
+                inner: inner,
+                radius: radius,
+                straightWidth: straightWidth,
+                straightHeight: straightHeight,
+                arcLength: arcLength
+            )
+            let theta = distance / perimeter * 2 * .pi
+            let sway = wobbleAmplitude * (0.62 * sin(2 * theta + phaseOne) + 0.38 * sin(5 * theta + phaseTwo))
+            let halfWeight = baseWeight * max(0.30, 1 + 0.42 * sin(3 * theta + phaseThree) + 0.18 * sin(7 * theta + phaseOne)) / 2
+            outerPoints.append(CGPoint(x: point.x + normal.dx * (sway + halfWeight), y: point.y + normal.dy * (sway + halfWeight)))
+            innerPoints.append(CGPoint(x: point.x + normal.dx * (sway - halfWeight), y: point.y + normal.dy * (sway - halfWeight)))
+        }
+
+        var path = Path()
+        path.addLines(outerPoints)
+        path.closeSubpath()
+        path.addLines(Array(innerPoints.reversed()))
+        path.closeSubpath()
+        return path
+    }
+
+    private func pointAndNormal(
+        at distance: Double,
+        inner: CGRect,
+        radius: Double,
+        straightWidth: Double,
+        straightHeight: Double,
+        arcLength: Double
+    ) -> (CGPoint, CGVector) {
+        var remaining = distance
+
+        if remaining < straightWidth {
+            return (CGPoint(x: Double(inner.minX) + radius + remaining, y: Double(inner.minY)), CGVector(dx: 0, dy: -1))
+        }
+        remaining -= straightWidth
+
+        if remaining < arcLength {
+            let angle = -Double.pi / 2 + remaining / arcLength * (Double.pi / 2)
+            return cornerPoint(center: CGPoint(x: inner.maxX - radius, y: inner.minY + radius), radius: radius, angle: angle)
+        }
+        remaining -= arcLength
+
+        if remaining < straightHeight {
+            return (CGPoint(x: Double(inner.maxX), y: Double(inner.minY) + radius + remaining), CGVector(dx: 1, dy: 0))
+        }
+        remaining -= straightHeight
+
+        if remaining < arcLength {
+            let angle = remaining / arcLength * (Double.pi / 2)
+            return cornerPoint(center: CGPoint(x: inner.maxX - radius, y: inner.maxY - radius), radius: radius, angle: angle)
+        }
+        remaining -= arcLength
+
+        if remaining < straightWidth {
+            return (CGPoint(x: Double(inner.maxX) - radius - remaining, y: Double(inner.maxY)), CGVector(dx: 0, dy: 1))
+        }
+        remaining -= straightWidth
+
+        if remaining < arcLength {
+            let angle = Double.pi / 2 + remaining / arcLength * (Double.pi / 2)
+            return cornerPoint(center: CGPoint(x: inner.minX + radius, y: inner.maxY - radius), radius: radius, angle: angle)
+        }
+        remaining -= arcLength
+
+        if remaining < straightHeight {
+            return (CGPoint(x: Double(inner.minX), y: Double(inner.maxY) - radius - remaining), CGVector(dx: -1, dy: 0))
+        }
+        remaining -= straightHeight
+
+        let angle = Double.pi + min(remaining / arcLength, 1) * (Double.pi / 2)
+        return cornerPoint(center: CGPoint(x: inner.minX + radius, y: inner.minY + radius), radius: radius, angle: angle)
+    }
+
+    private func cornerPoint(center: CGPoint, radius: Double, angle: Double) -> (CGPoint, CGVector) {
+        let normal = CGVector(dx: cos(angle), dy: sin(angle))
+        return (CGPoint(x: Double(center.x) + radius * normal.dx, y: Double(center.y) + radius * normal.dy), normal)
+    }
+}
+
+/// A single tapered horizontal brush dash, thick at the left and trailing to a point.
+private struct InkDash: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.midY - rect.height * 0.05))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX, y: rect.midY - rect.height * 0.30),
+            control1: CGPoint(x: rect.minX + rect.width * 0.30, y: rect.minY),
+            control2: CGPoint(x: rect.minX + rect.width * 0.72, y: rect.minY + rect.height * 0.16)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.minX, y: rect.midY + rect.height * 0.22),
+            control1: CGPoint(x: rect.minX + rect.width * 0.70, y: rect.maxY),
+            control2: CGPoint(x: rect.minX + rect.width * 0.26, y: rect.maxY - rect.height * 0.10)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+private enum MancalaSurfaceRole {
+    case board
+    case pit
+    case store
+    case panel
+    case control
+}
+
+private struct MancalaSurfaceModifier: ViewModifier {
+    @Environment(\.mancalaVisualTheme) private var visualTheme
+    @Environment(\.colorScheme) private var colorScheme
+
+    let role: MancalaSurfaceRole
+    let tint: Color
+    let cornerRadius: CGFloat
+    let interactive: Bool
+    let seed: Int
+
+    private var isDark: Bool {
+        colorScheme == .dark
+    }
+
+    private var surfaceShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    }
+
+    func body(content: Content) -> some View {
+        if visualTheme == .calligraphy {
+            calligraphySurface(content)
+        } else {
+            glassSurface(content)
+        }
+    }
+
+    // MARK: Calligraphy
+
+    private var inkWeightFraction: Double {
+        switch role {
+        case .board: 0.010
+        case .pit: interactive ? 0.050 : 0.026
+        case .store: interactive ? 0.055 : 0.030
+        case .panel: 0.020
+        case .control: 0.040
+        }
+    }
+
+    private var inkOpacity: Double {
+        switch role {
+        case .board: 0.85
+        case .pit: interactive ? 0.92 : 0.30
+        case .store: interactive ? 0.92 : 0.38
+        case .panel: 0.42
+        case .control: 0.55
+        }
+    }
+
+    private func calligraphySurface(_ content: Content) -> some View {
+        content
+            .background(Color.white)
+            .overlay {
+                inkBorder
+                    .fill(Color.black.opacity(inkOpacity), style: FillStyle(eoFill: true))
+                    .allowsHitTesting(false)
+            }
+    }
+
+    private var inkBorder: AnyShape {
+        switch role {
+        case .pit, .control:
+            AnyShape(InkRing(seed: seed, exponent: 2.0, weightFraction: inkWeightFraction))
+        case .board, .store, .panel:
+            AnyShape(InkFrame(seed: seed, cornerRadius: cornerRadius, weightFraction: inkWeightFraction))
+        }
+    }
+
+    // MARK: Liquid glass
+
+    private var isRecessed: Bool {
+        role == .pit || role == .store
+    }
+
+    private var accent: Color? {
+        guard interactive else { return nil }
+        switch role {
+        case .pit:
+            return isDark ? .cyan : .blue
+        case .store:
+            return .green
+        case .board, .panel, .control:
+            return nil
+        }
+    }
+
+    private var rimGradient: LinearGradient {
+        LinearGradient(
+            colors: isRecessed
+                ? [Color.black.opacity(isDark ? 0.35 : 0.14), Color.white.opacity(isDark ? 0.20 : 0.55)]
+                : [Color.white.opacity(isDark ? 0.40 : 0.75), Color.black.opacity(isDark ? 0.28 : 0.09)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var slabEdge: some View {
+        surfaceShape
+            .fill(
+                LinearGradient(
+                    colors: isDark
+                        ? [Color.white.opacity(0.10), Color.white.opacity(0.04)]
+                        : [Color.white.opacity(0.65), Color.white.opacity(0.30)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .offset(y: 7)
+            .shadow(color: Color.black.opacity(isDark ? 0.50 : 0.22), radius: 26, x: 0, y: 16)
+    }
+
+    private var innerWellShadow: some View {
+        surfaceShape
+            .stroke(Color.black.opacity(isDark ? 0.42 : 0.16), lineWidth: 6)
+            .blur(radius: 5)
+            .offset(y: 3)
+            .clipShape(surfaceShape)
+            .allowsHitTesting(false)
+    }
+
+    private func glassSurface(_ content: Content) -> some View {
+        glassBase(content)
+            .overlay {
+                if isRecessed {
+                    innerWellShadow
+                }
+            }
+            .overlay {
+                surfaceShape
+                    .strokeBorder(rimGradient, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                if let accent {
+                    ZStack {
+                        surfaceShape
+                            .stroke(accent.opacity(isDark ? 0.40 : 0.28), lineWidth: 5)
+                            .blur(radius: 6)
+
+                        surfaceShape
+                            .strokeBorder(accent.opacity(isDark ? 0.55 : 0.45), lineWidth: 1.2)
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
+            .background {
+                if role == .board {
+                    slabEdge
+                }
+            }
     }
 
     @ViewBuilder
-    func mancalaGlassButtonStyle() -> some View {
+    private func glassBase(_ content: Content) -> some View {
         #if os(visionOS)
-        self.buttonStyle(.bordered)
+        content.background {
+            surfaceShape.fill(tint)
+        }
         #else
-        self.buttonStyle(.glass)
+        if #available(iOS 27.0, *) {
+            content.glassEffect(.regular.tint(tint), in: .rect(cornerRadius: cornerRadius))
+        } else {
+            content.background {
+                surfaceShape
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        surfaceShape.fill(tint)
+                    }
+            }
+        }
         #endif
+    }
+}
+
+private struct MancalaButtonStyleModifier: ViewModifier {
+    @Environment(\.mancalaVisualTheme) private var visualTheme
+
+    func body(content: Content) -> some View {
+        if visualTheme == .calligraphy {
+            content
+                .buttonStyle(.plain)
+                .background(.white)
+                .overlay {
+                    InkRing(seed: 11, exponent: 2.0, weightFraction: 0.045)
+                        .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
+                        .allowsHitTesting(false)
+                }
+        } else {
+            #if os(visionOS)
+            content.buttonStyle(.bordered)
+            #else
+            if #available(iOS 27.0, *) {
+                content.buttonStyle(.glass)
+            } else {
+                content.buttonStyle(.bordered)
+            }
+            #endif
+        }
+    }
+}
+
+private extension View {
+    func mancalaGlassEffect(
+        tint: Color,
+        cornerRadius: CGFloat,
+        role: MancalaSurfaceRole = .panel,
+        interactive: Bool = false,
+        seed: Int = 0
+    ) -> some View {
+        modifier(MancalaSurfaceModifier(role: role, tint: tint, cornerRadius: cornerRadius, interactive: interactive, seed: seed))
+    }
+
+    func mancalaGlassButtonStyle() -> some View {
+        modifier(MancalaButtonStyleModifier())
     }
 
     @ViewBuilder
@@ -2119,6 +2642,12 @@ private extension View {
     }
 }
 
-#Preview {
-    ContentView()
+#Preview("Liquid Glass") {
+    UserDefaults.standard.set(VisualTheme.liquidGlass.rawValue, forKey: "visualTheme")
+    return ContentView()
+}
+
+#Preview("Calligraphy") {
+    UserDefaults.standard.set(VisualTheme.calligraphy.rawValue, forKey: "visualTheme")
+    return ContentView()
 }

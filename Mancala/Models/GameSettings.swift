@@ -1,5 +1,19 @@
 import SwiftUI
 
+enum VisualTheme: String, CaseIterable, Identifiable {
+    case liquidGlass
+    case calligraphy
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .liquidGlass: "Liquid Glass"
+        case .calligraphy: "Calligraphy"
+        }
+    }
+}
+
 enum GameMode: String, CaseIterable, Identifiable {
     case twoPlayer
     case singlePlayer

@@ -1,5 +1,16 @@
 import SwiftUI
 
+private struct MancalaVisualThemeKey: EnvironmentKey {
+    static let defaultValue = VisualTheme.liquidGlass
+}
+
+extension EnvironmentValues {
+    var mancalaVisualTheme: VisualTheme {
+        get { self[MancalaVisualThemeKey.self] }
+        set { self[MancalaVisualThemeKey.self] = newValue }
+    }
+}
+
 struct FlyingStone: Equatable {
     var position: CGPoint
     let colorIndex: Int

@@ -124,6 +124,21 @@ final class GameCenterMultiplayerManager: NSObject {
         present(viewController)
     }
 
+    func showAchievements() {
+        guard isAuthenticated else {
+            statusMessage = "Sign in to Game Center first."
+            authenticateLocalPlayer()
+            return
+        }
+
+        #if os(macOS)
+        state = .unavailable("Game Center presentation is available on iPhone and iPad in this version.")
+        statusMessage = "Game Center presentation is available on iPhone and iPad in this version."
+        #else
+        GKAccessPoint.shared.trigger(state: .achievements) { }
+        #endif
+    }
+
     func clearPendingPayload() {
         pendingPayload = nil
         pendingRemoteMoveIndex = nil
@@ -338,8 +353,8 @@ final class GameCenterMultiplayerManager: NSObject {
 
     private func present(_ viewController: Any) {
         #if os(macOS)
-        state = .unavailable("Online matchmaking is available on iPhone and iPad in this version.")
-        statusMessage = "Online matchmaking is available on iPhone and iPad in this version."
+        state = .unavailable("Game Center presentation is available on iPhone and iPad in this version.")
+        statusMessage = "Game Center presentation is available on iPhone and iPad in this version."
         #elseif canImport(UIKit)
         guard let presenter = rootViewController(),
               let viewController = viewController as? UIViewController else {
