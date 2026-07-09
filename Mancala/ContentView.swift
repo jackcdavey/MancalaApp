@@ -68,7 +68,7 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geometry in
             let isPortrait = geometry.size.height > geometry.size.width
-            let verticalPadding: CGFloat = isPortrait ? 8 : 20
+            let verticalPadding: CGFloat = isPortrait ? 8 : 10
             let availableHeight = geometry.size.height - (verticalPadding * 2)
 
             ZStack {
@@ -95,6 +95,7 @@ struct ContentView: View {
             }
         }
         .environment(\.mancalaVisualTheme, visualTheme)
+        .environment(\.mancalaBoardFlipped, tableRotationDegrees == 180)
         .animation(.spring(response: 0.44, dampingFraction: 0.78), value: game.isGameOver)
         .sensoryFeedback(.selection, trigger: hapticTrigger)
         .sheet(isPresented: $isSettingsPresented) {
@@ -252,6 +253,11 @@ struct ContentView: View {
 
     private var tableRotationDegrees: Double {
         gameMode == .twoPlayer && flipScreenForTwoPlayerTurns && game.currentPlayer == .playerTwo && !game.isGameOver ? 180 : 0
+    }
+
+    private var boardTiltDegrees: Double {
+        guard visualTheme == .liquidGlass else { return 0 }
+        return tableRotationDegrees == 180 ? -14 : 14
     }
 
     private var shouldShowNumberLabels: Bool {
@@ -493,7 +499,8 @@ struct ContentView: View {
         let headerHeight: CGFloat = isPortrait ? 76 : (shouldShowStatusPanel && isThoughtPanelExpanded ? 172 : 64)
         let statusHeight: CGFloat = isPortrait && shouldShowStatusPanel ? (isThoughtPanelExpanded ? 172 : 46) : 0
         let visibleStatusSpacing = isPortrait && shouldShowStatusPanel ? contentSpacing : 0
-        let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing)
+        let slabClearance: CGFloat = visualTheme == .liquidGlass ? 42 : 0
+        let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing - slabClearance)
         let portraitStoreHeight = min(54, max(38, boardHeight * 0.10))
         let portraitPitHeight = max(34, (boardHeight - 24 - 20 - (portraitStoreHeight * 2) - 40) / 6)
 
@@ -508,6 +515,7 @@ struct ContentView: View {
                     wideBoard
                 }
             }
+            .padding(.horizontal, visualTheme == .liquidGlass ? (isPortrait ? 30 : 48) : 0)
             .frame(height: isPortrait ? boardHeight : nil)
             .coordinateSpace(name: "BoardSpace")
             .overlayPreferenceValue(CellFramePreferenceKey.self) { preferences in
@@ -527,16 +535,18 @@ struct ContentView: View {
                 }
             }
             .rotation3DEffect(
-                .degrees(visualTheme == .liquidGlass ? 8 : 0),
+                .degrees(boardTiltDegrees),
                 axis: (x: 1, y: 0, z: 0),
-                perspective: 0.30
+                perspective: 0.34
             )
+            .animation(.spring(response: 0.38, dampingFraction: 0.86), value: boardTiltDegrees)
 
             if isPortrait && shouldShowStatusPanel {
                 statusPanel
                     .frame(height: statusHeight)
             }
         }
+        .padding(.bottom, !isPortrait && visualTheme == .liquidGlass ? 30 : 0)
     }
 
     @ViewBuilder
@@ -1159,13 +1169,13 @@ struct ContentView: View {
             VStack(spacing: 12) {
                 HStack(spacing: 10) {
                     ForEach(Array(game.playerTwoPitIndices.reversed()), id: \.self) { index in
-                        pitButton(index: index, minHeight: 126)
+                        pitButton(index: index, minHeight: 112)
                     }
                 }
 
                 HStack(spacing: 10) {
                     ForEach(game.playerOnePitIndices, id: \.self) { index in
-                        pitButton(index: index, minHeight: 126)
+                        pitButton(index: index, minHeight: 112)
                     }
                 }
             }
@@ -2259,118 +2269,74 @@ private struct InkRing: Shape {
     }
 }
 
-/// A brush-stroke rounded-rectangle frame with hand-drawn wobble and variable ink weight.
-/// Unlike `InkRing`, it hugs the rectangle at any aspect ratio.
-private struct InkFrame: Shape {
+/// A curved brush stroke that cups an element from below, like the base of a bowl:
+/// the centerline bows downward, the body swells with a wet-ink belly, the head is
+/// blunt and rounded, and the tail tapers to a lifted point. High-frequency seeded
+/// texture keeps the edges from reading as clean vector lines. Odd seeds sweep the
+/// opposite direction.
+private struct InkBrushStroke: Shape {
     var seed: Int
-    var cornerRadius: CGFloat
-    var weightFraction: Double
-    var wobble: Double = 0.012
+    var weight: CGFloat
 
     func path(in rect: CGRect) -> Path {
-        guard rect.width > 8, rect.height > 8 else { return Path() }
+        guard rect.width > 8, rect.height > 2 else { return Path() }
 
-        let steps = 170
-        let minDimension = Double(min(rect.width, rect.height))
-        let baseWeight = min(max(minDimension * weightFraction, 1.1), 6.5)
-        let wobbleAmplitude = minDimension * wobble
+        let steps = 44
+        let flip = seed % 2 == 1
         let phaseOne = Double((seed &* 73) % 628) / 100
         let phaseTwo = Double((seed &* 131) % 628) / 100
-        let phaseThree = Double((seed &* 197) % 628) / 100
 
-        let margin = baseWeight * 0.9 + wobbleAmplitude
-        let inner = rect.insetBy(dx: margin, dy: margin)
-        let radius = Double(min(cornerRadius, min(inner.width, inner.height) / 2))
-        let straightWidth = Double(inner.width) - 2 * radius
-        let straightHeight = Double(inner.height) - 2 * radius
-        let arcLength = Double.pi * radius / 2
-        let perimeter = 2 * straightWidth + 2 * straightHeight + 4 * arcLength
+        let strokeWeight = Double(min(weight, rect.height * 0.60))
+        let bow = min(Double(rect.height) - strokeWeight, Double(rect.width) * 0.10) * 0.9
 
-        var outerPoints: [CGPoint] = []
-        var innerPoints: [CGPoint] = []
-        outerPoints.reserveCapacity(steps)
-        innerPoints.reserveCapacity(steps)
+        func xAt(_ t: Double) -> Double {
+            let fraction = flip ? 1 - t : t
+            return Double(rect.minX) + fraction * Double(rect.width)
+        }
 
-        for step in 0..<steps {
-            let distance = Double(step) / Double(steps) * perimeter
-            let (point, normal) = pointAndNormal(
-                at: distance,
-                inner: inner,
-                radius: radius,
-                straightWidth: straightWidth,
-                straightHeight: straightHeight,
-                arcLength: arcLength
-            )
-            let theta = distance / perimeter * 2 * .pi
-            let sway = wobbleAmplitude * (0.62 * sin(2 * theta + phaseOne) + 0.38 * sin(5 * theta + phaseTwo))
-            let halfWeight = baseWeight * max(0.30, 1 + 0.42 * sin(3 * theta + phaseThree) + 0.18 * sin(7 * theta + phaseOne)) / 2
-            outerPoints.append(CGPoint(x: point.x + normal.dx * (sway + halfWeight), y: point.y + normal.dy * (sway + halfWeight)))
-            innerPoints.append(CGPoint(x: point.x + normal.dx * (sway - halfWeight), y: point.y + normal.dy * (sway - halfWeight)))
+        func centerY(_ t: Double) -> Double {
+            Double(rect.minY) + strokeWeight / 2
+                + bow * sin(.pi * t)
+                + strokeWeight * 0.06 * sin(9 * t + phaseOne)
+        }
+
+        func halfWeight(_ t: Double) -> Double {
+            let body = pow(sin(.pi * (0.08 + 0.92 * pow(t, 0.9))), 0.72)
+            let texture = 1 + 0.14 * sin(13 * t + phaseOne) + 0.08 * sin(29 * t + phaseTwo)
+            return max(0, strokeWeight / 2 * body * texture)
+        }
+
+        var topPoints: [CGPoint] = []
+        var bottomPoints: [CGPoint] = []
+        topPoints.reserveCapacity(steps + 1)
+        bottomPoints.reserveCapacity(steps + 1)
+
+        for step in 0...steps {
+            let t = Double(step) / Double(steps)
+            let x = xAt(t)
+            let y = centerY(t)
+            let half = halfWeight(t)
+            topPoints.append(CGPoint(x: x, y: y - half))
+            bottomPoints.append(CGPoint(x: x, y: y + half))
         }
 
         var path = Path()
-        path.addLines(outerPoints)
-        path.closeSubpath()
-        path.addLines(Array(innerPoints.reversed()))
+        path.move(to: topPoints[0])
+        for point in topPoints.dropFirst() {
+            path.addLine(to: point)
+        }
+        for point in bottomPoints.reversed().dropFirst() {
+            path.addLine(to: point)
+        }
+
+        let headHalfWeight = halfWeight(0)
+        let headBulgeX = xAt(0) + (flip ? 1 : -1) * headHalfWeight * 1.5
+        path.addQuadCurve(
+            to: topPoints[0],
+            control: CGPoint(x: headBulgeX, y: centerY(0))
+        )
         path.closeSubpath()
         return path
-    }
-
-    private func pointAndNormal(
-        at distance: Double,
-        inner: CGRect,
-        radius: Double,
-        straightWidth: Double,
-        straightHeight: Double,
-        arcLength: Double
-    ) -> (CGPoint, CGVector) {
-        var remaining = distance
-
-        if remaining < straightWidth {
-            return (CGPoint(x: Double(inner.minX) + radius + remaining, y: Double(inner.minY)), CGVector(dx: 0, dy: -1))
-        }
-        remaining -= straightWidth
-
-        if remaining < arcLength {
-            let angle = -Double.pi / 2 + remaining / arcLength * (Double.pi / 2)
-            return cornerPoint(center: CGPoint(x: inner.maxX - radius, y: inner.minY + radius), radius: radius, angle: angle)
-        }
-        remaining -= arcLength
-
-        if remaining < straightHeight {
-            return (CGPoint(x: Double(inner.maxX), y: Double(inner.minY) + radius + remaining), CGVector(dx: 1, dy: 0))
-        }
-        remaining -= straightHeight
-
-        if remaining < arcLength {
-            let angle = remaining / arcLength * (Double.pi / 2)
-            return cornerPoint(center: CGPoint(x: inner.maxX - radius, y: inner.maxY - radius), radius: radius, angle: angle)
-        }
-        remaining -= arcLength
-
-        if remaining < straightWidth {
-            return (CGPoint(x: Double(inner.maxX) - radius - remaining, y: Double(inner.maxY)), CGVector(dx: 0, dy: 1))
-        }
-        remaining -= straightWidth
-
-        if remaining < arcLength {
-            let angle = Double.pi / 2 + remaining / arcLength * (Double.pi / 2)
-            return cornerPoint(center: CGPoint(x: inner.minX + radius, y: inner.maxY - radius), radius: radius, angle: angle)
-        }
-        remaining -= arcLength
-
-        if remaining < straightHeight {
-            return (CGPoint(x: Double(inner.minX), y: Double(inner.maxY) - radius - remaining), CGVector(dx: -1, dy: 0))
-        }
-        remaining -= straightHeight
-
-        let angle = Double.pi + min(remaining / arcLength, 1) * (Double.pi / 2)
-        return cornerPoint(center: CGPoint(x: inner.minX + radius, y: inner.minY + radius), radius: radius, angle: angle)
-    }
-
-    private func cornerPoint(center: CGPoint, radius: Double, angle: Double) -> (CGPoint, CGVector) {
-        let normal = CGVector(dx: cos(angle), dy: sin(angle))
-        return (CGPoint(x: Double(center.x) + radius * normal.dx, y: Double(center.y) + radius * normal.dy), normal)
     }
 }
 
@@ -2394,6 +2360,58 @@ private struct InkDash: Shape {
     }
 }
 
+/// The visible side wall of an extruded rounded-rect slab: the band between the
+/// near edge of the top face and that same edge pushed down by `depth`. Corner
+/// curvature is sampled so the wall silhouette wraps around the rounded corners.
+private struct SlabSideShape: Shape {
+    var cornerRadius: CGFloat
+    var depth: CGFloat
+    var flipped: Bool
+
+    func path(in rect: CGRect) -> Path {
+        guard rect.width > 8, rect.height > 8 else { return Path() }
+
+        let radius = min(cornerRadius, min(rect.width, rect.height) / 2)
+        let arcSteps = 14
+        var boundary: [CGPoint] = []
+        boundary.reserveCapacity(arcSteps * 2 + 2)
+
+        for step in 0...arcSteps {
+            let theta = Double.pi - Double(step) / Double(arcSteps) * (Double.pi / 2)
+            boundary.append(CGPoint(
+                x: rect.minX + radius + radius * cos(theta),
+                y: rect.maxY - radius + radius * sin(theta)
+            ))
+        }
+        for step in 0...arcSteps {
+            let theta = Double.pi / 2 - Double(step) / Double(arcSteps) * (Double.pi / 2)
+            boundary.append(CGPoint(
+                x: rect.maxX - radius + radius * cos(theta),
+                y: rect.maxY - radius + radius * sin(theta)
+            ))
+        }
+
+        func resolved(_ point: CGPoint, extruded: Bool) -> CGPoint {
+            var result = CGPoint(x: point.x, y: point.y + (extruded ? depth : 0))
+            if flipped {
+                result.y = rect.minY + rect.maxY - result.y
+            }
+            return result
+        }
+
+        var path = Path()
+        path.move(to: resolved(boundary[0], extruded: false))
+        for point in boundary.dropFirst() {
+            path.addLine(to: resolved(point, extruded: false))
+        }
+        for point in boundary.reversed() {
+            path.addLine(to: resolved(point, extruded: true))
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
 private enum MancalaSurfaceRole {
     case board
     case pit
@@ -2405,6 +2423,7 @@ private enum MancalaSurfaceRole {
 private struct MancalaSurfaceModifier: ViewModifier {
     @Environment(\.mancalaVisualTheme) private var visualTheme
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.mancalaBoardFlipped) private var isFlipped
 
     let role: MancalaSurfaceRole
     let tint: Color
@@ -2430,43 +2449,60 @@ private struct MancalaSurfaceModifier: ViewModifier {
 
     // MARK: Calligraphy
 
-    private var inkWeightFraction: Double {
+    private var inkOpacity: Double {
         switch role {
-        case .board: 0.010
-        case .pit: interactive ? 0.050 : 0.026
-        case .store: interactive ? 0.055 : 0.030
-        case .panel: 0.020
-        case .control: 0.040
+        case .board: 0
+        case .pit: interactive ? 0.92 : 0.35
+        case .store: interactive ? 0.92 : 0.42
+        case .panel: 0.50
+        case .control: 0.80
         }
     }
 
-    private var inkOpacity: Double {
+    private var underlineWeight: CGFloat {
         switch role {
-        case .board: 0.85
-        case .pit: interactive ? 0.92 : 0.30
-        case .store: interactive ? 0.92 : 0.38
-        case .panel: 0.42
-        case .control: 0.55
+        case .board: 0
+        case .pit: interactive ? 5.5 : 3.2
+        case .store: interactive ? 6.5 : 3.8
+        case .panel: 3.6
+        case .control: 4.6
+        }
+    }
+
+    private var underlineHeight: CGFloat {
+        switch role {
+        case .board: 0
+        case .pit: interactive ? 14 : 11
+        case .store: interactive ? 16 : 13
+        case .panel: 11
+        case .control: 12
+        }
+    }
+
+    private var underlineInset: CGFloat {
+        switch role {
+        case .board: 0
+        case .pit: 14
+        case .store: 18
+        case .panel: 28
+        case .control: 24
         }
     }
 
     private func calligraphySurface(_ content: Content) -> some View {
         content
             .background(Color.white)
-            .overlay {
-                inkBorder
-                    .fill(Color.black.opacity(inkOpacity), style: FillStyle(eoFill: true))
-                    .allowsHitTesting(false)
+            .overlay(alignment: isFlipped ? .top : .bottom) {
+                if role != .board {
+                    InkBrushStroke(seed: seed, weight: underlineWeight)
+                        .fill(Color.black.opacity(inkOpacity))
+                        .frame(height: underlineHeight)
+                        .padding(.horizontal, underlineInset)
+                        .rotationEffect(.degrees(isFlipped ? 180 : 0))
+                        .offset(y: isFlipped ? 2 : -2)
+                        .allowsHitTesting(false)
+                }
             }
-    }
-
-    private var inkBorder: AnyShape {
-        switch role {
-        case .pit, .control:
-            AnyShape(InkRing(seed: seed, exponent: 2.0, weightFraction: inkWeightFraction))
-        case .board, .store, .panel:
-            AnyShape(InkFrame(seed: seed, cornerRadius: cornerRadius, weightFraction: inkWeightFraction))
-        }
     }
 
     // MARK: Liquid glass
@@ -2487,38 +2523,98 @@ private struct MancalaSurfaceModifier: ViewModifier {
         }
     }
 
+    private var nearEdge: UnitPoint {
+        isFlipped ? .top : .bottom
+    }
+
+    private var farEdge: UnitPoint {
+        isFlipped ? .bottom : .top
+    }
+
     private var rimGradient: LinearGradient {
-        LinearGradient(
+        if role == .board {
+            return LinearGradient(
+                colors: [Color.white.opacity(isDark ? 0.45 : 0.90), Color.white.opacity(isDark ? 0.30 : 0.60)],
+                startPoint: farEdge,
+                endPoint: nearEdge
+            )
+        }
+
+        return LinearGradient(
             colors: isRecessed
                 ? [Color.black.opacity(isDark ? 0.35 : 0.14), Color.white.opacity(isDark ? 0.20 : 0.55)]
                 : [Color.white.opacity(isDark ? 0.40 : 0.75), Color.black.opacity(isDark ? 0.28 : 0.09)],
-            startPoint: .top,
-            endPoint: .bottom
+            startPoint: farEdge,
+            endPoint: nearEdge
         )
     }
 
+    /// Extruded side wall that makes the board read as one solid block of frosted
+    /// glass. A single band shape spans from the near edge of the top face down to
+    /// the bottom of the slab, shaded darker toward the lip and toward the corners
+    /// where the wall turns away from the viewer. Follows the table flip.
     private var slabEdge: some View {
-        surfaceShape
-            .fill(
-                LinearGradient(
-                    colors: isDark
-                        ? [Color.white.opacity(0.10), Color.white.opacity(0.04)]
-                        : [Color.white.opacity(0.65), Color.white.opacity(0.30)],
-                    startPoint: .top,
-                    endPoint: .bottom
+        GeometryReader { proxy in
+            let depth: CGFloat = 32
+            let height = max(proxy.size.height, 1)
+            let radius = min(cornerRadius, min(proxy.size.width, proxy.size.height) / 2)
+            let side = SlabSideShape(cornerRadius: cornerRadius, depth: depth, flipped: isFlipped)
+            let adjacent = isFlipped
+                ? UnitPoint(x: 0.5, y: radius / height)
+                : UnitPoint(x: 0.5, y: (height - radius) / height)
+            let extremity = isFlipped
+                ? UnitPoint(x: 0.5, y: -depth / height)
+                : UnitPoint(x: 0.5, y: (height + depth) / height)
+
+            ZStack {
+                side.fill(
+                    LinearGradient(
+                        colors: isDark
+                            ? [Color.white.opacity(0.20), Color.white.opacity(0.02)]
+                            : [Color(red: 0.93, green: 0.95, blue: 0.97), Color(red: 0.62, green: 0.69, blue: 0.78)],
+                        startPoint: adjacent,
+                        endPoint: extremity
+                    )
                 )
-            )
-            .offset(y: 7)
-            .shadow(color: Color.black.opacity(isDark ? 0.50 : 0.22), radius: 26, x: 0, y: 16)
+
+                side.fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color.black.opacity(isDark ? 0.45 : 0.20), location: 0),
+                            .init(color: .clear, location: 0.15),
+                            .init(color: .clear, location: 0.85),
+                            .init(color: Color.black.opacity(isDark ? 0.45 : 0.20), location: 1)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+            }
+            .shadow(color: Color.black.opacity(isDark ? 0.55 : 0.24), radius: 20, x: 0, y: isFlipped ? -12 : 16)
+        }
     }
 
     private var innerWellShadow: some View {
-        surfaceShape
-            .stroke(Color.black.opacity(isDark ? 0.42 : 0.16), lineWidth: 6)
-            .blur(radius: 5)
-            .offset(y: 3)
-            .clipShape(surfaceShape)
-            .allowsHitTesting(false)
+        ZStack {
+            surfaceShape
+                .fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color.black.opacity(isDark ? 0.22 : 0.08), location: 0),
+                            .init(color: .clear, location: 0.45)
+                        ],
+                        startPoint: farEdge,
+                        endPoint: nearEdge
+                    )
+                )
+
+            surfaceShape
+                .stroke(Color.black.opacity(isDark ? 0.48 : 0.20), lineWidth: 9)
+                .blur(radius: 6)
+                .offset(y: isFlipped ? -4 : 4)
+        }
+        .clipShape(surfaceShape)
+        .allowsHitTesting(false)
     }
 
     private func glassSurface(_ content: Content) -> some View {
