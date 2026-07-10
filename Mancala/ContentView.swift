@@ -147,9 +147,9 @@ struct ContentView: View {
         }
 
         return [
-            Color(red: 0.95, green: 0.97, blue: 1.00),
-            Color(red: 0.87, green: 0.91, blue: 0.97),
-            Color(red: 0.80, green: 0.86, blue: 0.94)
+            Color(red: 0.97, green: 0.97, blue: 0.98),
+            Color(red: 0.91, green: 0.91, blue: 0.93),
+            Color(red: 0.85, green: 0.86, blue: 0.88)
         ]
     }
 
@@ -159,9 +159,9 @@ struct ContentView: View {
         }
 
         return [
-            Color(red: 0.04, green: 0.06, blue: 0.09),
-            Color(red: 0.08, green: 0.11, blue: 0.16),
-            Color(red: 0.12, green: 0.16, blue: 0.22)
+            Color(red: 0.05, green: 0.05, blue: 0.06),
+            Color(red: 0.09, green: 0.09, blue: 0.11),
+            Color(red: 0.13, green: 0.13, blue: 0.16)
         ]
     }
 
@@ -180,7 +180,7 @@ struct ContentView: View {
         if visualTheme == .calligraphy {
             return .white
         }
-        return isDarkMode ? Color.white.opacity(0.08) : Color.white.opacity(0.30)
+        return isDarkMode ? Color.white.opacity(0.09) : Color.white.opacity(0.52)
     }
 
     private var pitTint: Color {
@@ -1316,7 +1316,7 @@ struct ContentView: View {
             .padding(.vertical, verticalInset)
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: minHeight)
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .contentShape(pitHitShape)
             .mancalaGlassEffect(tint: isPlayable ? playableTint : pitTint, cornerRadius: 20, role: .pit, interactive: isPlayable, seed: index)
             .overlay {
                 if isHinted {
@@ -1327,7 +1327,7 @@ struct ContentView: View {
                             .transition(.opacity.combined(with: .scale(scale: 1.03)))
                             .allowsHitTesting(false)
                     } else {
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        Ellipse()
                             .stroke(Color.yellow.opacity(isDarkMode ? 0.94 : 0.88), lineWidth: 3)
                             .shadow(color: Color.yellow.opacity(0.82), radius: 12, x: 0, y: 0)
                             .shadow(color: Color.orange.opacity(0.42), radius: 22, x: 0, y: 0)
@@ -1338,10 +1338,16 @@ struct ContentView: View {
             }
         }
         .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .contentShape(pitHitShape)
         .disabled(!isPlayable)
         .recordCellFrame(id: index)
         .accessibilityLabel("\(displayName(for: owner)) pit with \(game.pits[index]) stones")
+    }
+
+    private var pitHitShape: AnyShape {
+        visualTheme == .liquidGlass
+            ? AnyShape(Ellipse())
+            : AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var canRequestHint: Bool {
@@ -2511,6 +2517,13 @@ private struct MancalaSurfaceModifier: ViewModifier {
         role == .pit || role == .store
     }
 
+    /// Pits are oval wells, stores are oblong troughs — both carved into the
+    /// slab rather than sitting on it, so they render as shaded depressions in
+    /// the board surface instead of separate glass elements.
+    private var wellShape: AnyShape {
+        role == .pit ? AnyShape(Ellipse()) : AnyShape(Capsule(style: .continuous))
+    }
+
     private var accent: Color? {
         guard interactive else { return nil }
         switch role {
@@ -2532,17 +2545,9 @@ private struct MancalaSurfaceModifier: ViewModifier {
     }
 
     private var rimGradient: LinearGradient {
-        if role == .board {
-            return LinearGradient(
-                colors: [Color.white.opacity(isDark ? 0.45 : 0.90), Color.white.opacity(isDark ? 0.30 : 0.60)],
-                startPoint: farEdge,
-                endPoint: nearEdge
-            )
-        }
-
-        return LinearGradient(
-            colors: isRecessed
-                ? [Color.black.opacity(isDark ? 0.35 : 0.14), Color.white.opacity(isDark ? 0.20 : 0.55)]
+        LinearGradient(
+            colors: role == .board
+                ? [Color.white.opacity(isDark ? 0.45 : 0.90), Color.white.opacity(isDark ? 0.30 : 0.60)]
                 : [Color.white.opacity(isDark ? 0.40 : 0.75), Color.black.opacity(isDark ? 0.28 : 0.09)],
             startPoint: farEdge,
             endPoint: nearEdge
@@ -2571,7 +2576,7 @@ private struct MancalaSurfaceModifier: ViewModifier {
                     LinearGradient(
                         colors: isDark
                             ? [Color.white.opacity(0.20), Color.white.opacity(0.02)]
-                            : [Color(red: 0.93, green: 0.95, blue: 0.97), Color(red: 0.62, green: 0.69, blue: 0.78)],
+                            : [Color(red: 0.94, green: 0.94, blue: 0.95), Color(red: 0.70, green: 0.71, blue: 0.73)],
                         startPoint: adjacent,
                         endPoint: extremity
                     )
@@ -2594,59 +2599,100 @@ private struct MancalaSurfaceModifier: ViewModifier {
         }
     }
 
-    private var innerWellShadow: some View {
+    /// Shading that makes a well read as a smooth concave depression in the
+    /// slab: the far wall falls into shadow, ambient occlusion hugs the whole
+    /// rim, and light pools on the floor toward the near edge. Everything is
+    /// blurred and clipped to the well so there is no hard boundary line.
+    private var wellInterior: some View {
         ZStack {
-            surfaceShape
+            wellShape
                 .fill(
                     LinearGradient(
                         stops: [
-                            .init(color: Color.black.opacity(isDark ? 0.22 : 0.08), location: 0),
-                            .init(color: .clear, location: 0.45)
+                            .init(color: Color.black.opacity(isDark ? 0.38 : 0.17), location: 0),
+                            .init(color: Color.black.opacity(isDark ? 0.16 : 0.06), location: 0.42),
+                            .init(color: Color.white.opacity(isDark ? 0.05 : 0.28), location: 1)
                         ],
                         startPoint: farEdge,
                         endPoint: nearEdge
                     )
                 )
 
-            surfaceShape
-                .stroke(Color.black.opacity(isDark ? 0.48 : 0.20), lineWidth: 9)
-                .blur(radius: 6)
-                .offset(y: isFlipped ? -4 : 4)
+            wellShape
+                .stroke(Color.black.opacity(isDark ? 0.40 : 0.15), lineWidth: 10)
+                .blur(radius: 8)
+
+            wellShape
+                .stroke(Color.black.opacity(isDark ? 0.30 : 0.13), lineWidth: 6)
+                .blur(radius: 5)
+                .offset(y: isFlipped ? -5 : 5)
+
+            wellShape
+                .fill(
+                    EllipticalGradient(
+                        colors: [Color.white.opacity(isDark ? 0.10 : 0.42), .clear],
+                        center: UnitPoint(x: 0.5, y: isFlipped ? 0.30 : 0.70),
+                        startRadiusFraction: 0,
+                        endRadiusFraction: 0.55
+                    )
+                )
+
+            if let accent {
+                wellShape
+                    .fill(
+                        EllipticalGradient(
+                            colors: [accent.opacity(isDark ? 0.26 : 0.13), .clear],
+                            center: UnitPoint(x: 0.5, y: isFlipped ? 0.38 : 0.62),
+                            startRadiusFraction: 0,
+                            endRadiusFraction: 0.52
+                        )
+                    )
+                    .blur(radius: 5)
+            }
         }
-        .clipShape(surfaceShape)
+        .clipShape(wellShape)
         .allowsHitTesting(false)
     }
 
-    private func glassSurface(_ content: Content) -> some View {
-        glassBase(content)
-            .overlay {
-                if isRecessed {
-                    innerWellShadow
+    /// A depression carved into the board: no material of its own, just
+    /// concave shading plus a soft light catch on the board surface below the
+    /// near rim.
+    private func recessedSurface(_ content: Content) -> some View {
+        content
+            .background {
+                ZStack {
+                    wellShape
+                        .stroke(Color.white.opacity(isDark ? 0.14 : 0.65), lineWidth: 1.6)
+                        .blur(radius: 1.2)
+                        .offset(y: isFlipped ? -1.5 : 1.5)
+
+                    wellInterior
                 }
+                .allowsHitTesting(false)
             }
+    }
+
+    private func raisedSurface(_ content: Content) -> some View {
+        glassBase(content)
             .overlay {
                 surfaceShape
                     .strokeBorder(rimGradient, lineWidth: 1)
                     .allowsHitTesting(false)
-            }
-            .overlay {
-                if let accent {
-                    ZStack {
-                        surfaceShape
-                            .stroke(accent.opacity(isDark ? 0.40 : 0.28), lineWidth: 5)
-                            .blur(radius: 6)
-
-                        surfaceShape
-                            .strokeBorder(accent.opacity(isDark ? 0.55 : 0.45), lineWidth: 1.2)
-                    }
-                    .allowsHitTesting(false)
-                }
             }
             .background {
                 if role == .board {
                     slabEdge
                 }
             }
+    }
+
+    @ViewBuilder
+    private func glassSurface(_ content: Content) -> some View {
+        if isRecessed {
+            recessedSurface(content)
+        } else {
+            raisedSurface(content)
+        }
     }
 
     @ViewBuilder
