@@ -13,6 +13,8 @@ struct ContentView: View {
     @State private var endGameAnimationPulse = false
     @AppStorage("gameMode") private var gameMode = GameMode.twoPlayer
     @AppStorage("visualTheme") private var visualTheme = VisualTheme.liquidGlass
+    @AppStorage("boardMaterialStyle") private var boardMaterialStyle = BoardMaterialStyle.walnut
+    @AppStorage("gyroMotionEnabled") private var gyroMotionEnabled = true
     @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = false
     @AppStorage("difficulty") private var difficulty = AIDifficulty.medium
     @AppStorage("zeroPlayerOneDifficulty") private var zeroPlayerOneDifficulty = AIDifficulty.medium
@@ -60,6 +62,14 @@ struct ContentView: View {
     @AppStorage("savedOnlineGameState") private var savedOnlineGameState = Data()
     @AppStorage("completedGameHistory") private var completedGameHistoryData = Data()
     @AppStorage("savedGameState") private var legacySavedGameState = Data()
+    #if os(visionOS)
+    @Environment(SpatialBoardModel.self) private var spatialBoard
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
+    #else
+    @State private var boardScene = BoardScene()
+    @State private var motionParallax = MotionParallaxController()
+    #endif
 
     private var isDarkMode: Bool {
         colorScheme == .dark
@@ -112,6 +122,25 @@ struct ContentView: View {
             restoreSavedGameIfNeeded()
             onlineManager.authenticateLocalPlayer()
         }
+        #if os(visionOS)
+        .task {
+            spatialBoard.scene.onPitTapped = { index in
+                Task { await animateMove(from: index) }
+            }
+            // The 3D theme lives in the room on visionOS; open the board
+            // volume on launch. If the user closes it, `isOpen` goes false
+            // and the window shows the 2D board instead.
+            if visualTheme == .liquidGlass {
+                setSpatialBoard(open: true)
+            }
+        }
+        .onChange(of: spatialSyncState, initial: true) { _, _ in
+            syncSpatialBoard()
+        }
+        .onChange(of: visualTheme) { _, theme in
+            setSpatialBoard(open: theme == .liquidGlass)
+        }
+        #endif
         .onChange(of: onlineManager.currentMatchID) { _, _ in
             applyPendingOnlineMatchIfNeeded()
         }
@@ -180,7 +209,7 @@ struct ContentView: View {
         if visualTheme == .calligraphy {
             return .white
         }
-        return isDarkMode ? Color.white.opacity(0.09) : Color.white.opacity(0.52)
+        return isDarkMode ? Color.white.opacity(0.09) : Color.white.opacity(0.62)
     }
 
     private var pitTint: Color {
@@ -257,7 +286,35 @@ struct ContentView: View {
 
     private var boardTiltDegrees: Double {
         guard visualTheme == .liquidGlass else { return 0 }
-        return tableRotationDegrees == 180 ? -14 : 14
+        return tableRotationDegrees == 180 ? -22 : 22
+    }
+
+    /// The default theme renders as a real RealityKit board: in-window on
+    /// iOS/macOS, anchored to a real surface via the immersive space on
+    /// visionOS. On visionOS this is only "active" while the space is open —
+    /// if the user closes it, the window falls back to the 2D board.
+    private var is3DBoardActive: Bool {
+        #if os(visionOS)
+        return visualTheme == .liquidGlass && spatialBoard.isOpen
+        #else
+        return visualTheme == .liquidGlass
+        #endif
+    }
+
+    /// The scene that stone-flight animations should target, when one is live.
+    private var activeBoardScene: BoardScene? {
+        #if os(visionOS)
+        return spatialBoard.isOpen ? spatialBoard.scene : nil
+        #else
+        return is3DBoardActive ? boardScene : nil
+        #endif
+    }
+
+    /// Pits the local player may tap right now; mirrors `pitButton`'s
+    /// enablement predicate for the 3D board's highlight rings.
+    private var playablePitSet: Set<Int> {
+        guard !isAnimatingMove, !isAIMovePending else { return [] }
+        return Set((0..<14).filter { game.canPlayPit(at: $0) && canHumanPlayPit(at: $0) })
     }
 
     private var shouldShowNumberLabels: Bool {
@@ -499,7 +556,7 @@ struct ContentView: View {
         let headerHeight: CGFloat = isPortrait ? 76 : (shouldShowStatusPanel && isThoughtPanelExpanded ? 172 : 64)
         let statusHeight: CGFloat = isPortrait && shouldShowStatusPanel ? (isThoughtPanelExpanded ? 172 : 46) : 0
         let visibleStatusSpacing = isPortrait && shouldShowStatusPanel ? contentSpacing : 0
-        let slabClearance: CGFloat = visualTheme == .liquidGlass ? 42 : 0
+        let slabClearance: CGFloat = visualTheme == .liquidGlass && !is3DBoardActive ? 42 : 0
         let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing - slabClearance)
         let portraitStoreHeight = min(54, max(38, boardHeight * 0.10))
         let portraitPitHeight = max(34, (boardHeight - 24 - 20 - (portraitStoreHeight * 2) - 40) / 6)
@@ -508,60 +565,178 @@ struct ContentView: View {
             header(isPortrait: isPortrait)
                 .frame(height: headerHeight)
 
-            boardContainer {
-                if isPortrait {
-                    portraitBoard(pitHeight: portraitPitHeight, storeHeight: portraitStoreHeight)
-                } else {
-                    wideBoard
+            if is3DBoardActive {
+                #if os(visionOS)
+                spatialBoardPlaceholder(boardHeight: boardHeight)
+                #else
+                board3DSection(isPortrait: isPortrait, boardHeight: boardHeight)
+                    // Break out of `gameContent`'s horizontal inset so the board
+                    // spans the full screen width and can travel to the real
+                    // edges when parallax tilts it (header/status stay inset).
+                    .padding(.horizontal, isPortrait ? -16 : -10)
+                #endif
+            } else {
+                boardContainer {
+                    if isPortrait {
+                        portraitBoard(pitHeight: portraitPitHeight, storeHeight: portraitStoreHeight)
+                    } else {
+                        wideBoard
+                    }
                 }
-            }
-            .padding(.horizontal, visualTheme == .liquidGlass ? (isPortrait ? 30 : 48) : 0)
-            .frame(height: isPortrait ? boardHeight : nil)
-            .coordinateSpace(name: "BoardSpace")
-            .overlayPreferenceValue(CellFramePreferenceKey.self) { preferences in
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear {
-                            updateCellFrames(preferences, proxy: proxy)
-                        }
-                        .onChange(of: preferences) { _, newValue in
-                            updateCellFrames(newValue, proxy: proxy)
-                        }
+                .padding(.horizontal, visualTheme == .liquidGlass ? (isPortrait ? 30 : 48) : 0)
+                .frame(height: isPortrait ? boardHeight : nil)
+                .coordinateSpace(name: "BoardSpace")
+                .overlayPreferenceValue(CellFramePreferenceKey.self) { preferences in
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear {
+                                updateCellFrames(preferences, proxy: proxy)
+                            }
+                            .onChange(of: preferences) { _, newValue in
+                                updateCellFrames(newValue, proxy: proxy)
+                            }
+                    }
                 }
-            }
-            .overlay(alignment: .topLeading) {
-                if let flyingStone {
-                    animatedStone(flyingStone)
+                .overlay(alignment: .topLeading) {
+                    if let flyingStone {
+                        animatedStone(flyingStone)
+                    }
                 }
+                .rotation3DEffect(
+                    .degrees(boardTiltDegrees),
+                    axis: (x: 1, y: 0, z: 0),
+                    perspective: 0.45
+                )
+                .animation(.spring(response: 0.38, dampingFraction: 0.86), value: boardTiltDegrees)
             }
-            .rotation3DEffect(
-                .degrees(boardTiltDegrees),
-                axis: (x: 1, y: 0, z: 0),
-                perspective: 0.34
-            )
-            .animation(.spring(response: 0.38, dampingFraction: 0.86), value: boardTiltDegrees)
 
             if isPortrait && shouldShowStatusPanel {
                 statusPanel
                     .frame(height: statusHeight)
             }
         }
-        .padding(.bottom, !isPortrait && visualTheme == .liquidGlass ? 30 : 0)
+        .padding(.bottom, !isPortrait && visualTheme == .liquidGlass && !is3DBoardActive ? 30 : 0)
     }
 
-    @ViewBuilder
-    private func boardContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        #if os(visionOS)
-        content()
-        #else
-        if #available(iOS 27.0, *) {
-            GlassEffectContainer(spacing: 16) {
-                content()
+    #if os(visionOS)
+    /// Fills the window's board slot while the real board sits anchored out in
+    /// the room; the window keeps score, status, and controls.
+    private func spatialBoardPlaceholder(boardHeight: CGFloat) -> some View {
+        VStack(spacing: 14) {
+            Image(systemName: "cube.transparent")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(.secondary)
+
+            Text("The board is placed in your space")
+                .font(.headline)
+                .foregroundStyle(primaryText)
+
+            Text("Touch a pit — or look at it and pinch — to sow. Use the handle below the board to move it or snap it onto a surface.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+
+            Button {
+                setSpatialBoard(open: false)
+            } label: {
+                Label("Return Board to Window", systemImage: "arrow.down.forward.and.arrow.up.backward")
             }
-        } else {
-            content()
+            .buttonStyle(.bordered)
         }
-        #endif
+        .frame(maxWidth: .infinity)
+        .frame(height: boardHeight)
+    }
+
+    /// Everything the anchored board mirrors, snapshotted so a single
+    /// `onChange` can push updates into the shared scene.
+    private var spatialSyncState: SpatialBoardSyncState {
+        SpatialBoardSyncState(
+            pits: game.pits,
+            playable: playablePitSet,
+            hinted: hintedPitIndex,
+            currentStore: game.isGameOver ? nil : game.storeIndex(for: game.currentPlayer),
+            showLabels: shouldShowNumberLabels,
+            dark: isDarkMode,
+            material: boardMaterialStyle
+        )
+    }
+
+    private func syncSpatialBoard() {
+        let state = spatialSyncState
+        // No camera on visionOS, so flip/portrait/viewSize are inert.
+        spatialBoard.scene.sync(
+            pits: state.pits,
+            playable: state.playable,
+            hinted: state.hinted,
+            currentStore: state.currentStore,
+            flipped: false,
+            portrait: false,
+            viewSize: CGSize(width: 1, height: 1),
+            showLabels: state.showLabels,
+            dark: state.dark,
+            material: state.material
+        )
+    }
+
+    private func setSpatialBoard(open: Bool) {
+        if open, !spatialBoard.isOpen {
+            openWindow(id: SpatialBoardModel.windowID)
+        } else if !open, spatialBoard.isOpen {
+            dismissWindow(id: SpatialBoardModel.windowID)
+        }
+    }
+    #else
+    /// The RealityKit board used by the default theme. All surrounding
+    /// chrome (header, status panel, popups) stays SwiftUI.
+    private func board3DSection(isPortrait: Bool, boardHeight: CGFloat) -> some View {
+        Board3DView(
+            pits: game.pits,
+            playablePits: playablePitSet,
+            hintedPit: hintedPitIndex,
+            currentStoreIndex: game.isGameOver ? nil : game.storeIndex(for: game.currentPlayer),
+            flipped: tableRotationDegrees == 180,
+            isPortrait: isPortrait,
+            showLabels: shouldShowNumberLabels,
+            isDarkMode: isDarkMode,
+            boardMaterial: boardMaterialStyle,
+            scene: boardScene
+        )
+        .frame(height: isPortrait ? boardHeight : nil)
+        .frame(maxHeight: isPortrait ? nil : .infinity)
+        .onAppear {
+            boardScene.onPitTapped = { index in
+                Task { await animateMove(from: index) }
+            }
+            if gyroMotionEnabled {
+                startMotionParallax()
+            }
+        }
+        .onDisappear {
+            motionParallax.stop()
+        }
+        .onChange(of: gyroMotionEnabled) { _, enabled in
+            if enabled {
+                startMotionParallax()
+            } else {
+                motionParallax.stop()
+                boardScene.setParallax(yaw: 0, pitch: 0)
+            }
+        }
+    }
+
+    private func startMotionParallax() {
+        motionParallax.start { yaw, pitch in
+            boardScene.setParallax(yaw: yaw, pitch: pitch)
+        }
+    }
+    #endif
+
+    /// The board renders its own frosted surfaces (no `glassEffect` inside),
+    /// so it must not sit in a `GlassEffectContainer` — the container changes
+    /// compositing on real hardware in ways the simulator doesn't reproduce.
+    private func boardContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
     }
 
     private var endGamePopup: some View {
@@ -726,6 +901,21 @@ struct ContentView: View {
                 .accessibilityLabel(isZeroPlayerPaused ? "Play zero player game" : "Pause zero player game")
             }
 
+            #if os(visionOS)
+            if visualTheme == .liquidGlass {
+                Button {
+                    setSpatialBoard(open: !spatialBoard.isOpen)
+                } label: {
+                    Image(systemName: spatialBoard.isOpen ? "arrow.down.forward.and.arrow.up.backward" : "cube")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(primaryText)
+                        .frame(width: 44, height: 44)
+                }
+                .mancalaGlassButtonStyle()
+                .accessibilityLabel(spatialBoard.isOpen ? "Return board to window" : "Place board in your space")
+            }
+            #endif
+
             Menu {
                 Button {
                     isRulesPresented = true
@@ -784,6 +974,22 @@ struct ContentView: View {
                     Text(visualTheme == .calligraphy ? "Plain black and white, with hand-inked brushstrokes for the board and pits." : "A frosted glass board with depth, viewed at a slight angle.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+
+                    if visualTheme == .liquidGlass {
+                        Picker("Material", selection: $boardMaterialStyle) {
+                            ForEach(BoardMaterialStyle.allCases) { style in
+                                Text(style.title).tag(style)
+                            }
+                        }
+
+                        #if !os(visionOS)
+                        Toggle("Motion Parallax", isOn: $gyroMotionEnabled)
+
+                        Text("Tilts the board's perspective with your device's motion.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        #endif
+                    }
                 }
 
                 Section("Players") {
@@ -1301,15 +1507,31 @@ struct ContentView: View {
                 await animateMove(from: index)
             }
         } label: {
-            VStack(spacing: contentSpacing) {
-                stoneCluster(count: game.pits[index])
-                    .frame(height: clusterHeight)
+            Group {
+                if visualTheme == .liquidGlass {
+                    stoneCluster(count: game.pits[index])
+                        .frame(height: clusterHeight)
+                        .frame(maxHeight: .infinity)
+                        .overlay(alignment: .bottom) {
+                            if shouldShowNumberLabels {
+                                Text("\(game.pits[index])")
+                                    .font(countFont(size: countSize * 0.78))
+                                    .foregroundStyle(secondaryText)
+                                    .contentTransition(.numericText())
+                            }
+                        }
+                } else {
+                    VStack(spacing: contentSpacing) {
+                        stoneCluster(count: game.pits[index])
+                            .frame(height: clusterHeight)
 
-                if shouldShowNumberLabels {
-                    Text("\(game.pits[index])")
-                        .font(countFont(size: countSize))
-                        .foregroundStyle(primaryText)
-                        .contentTransition(.numericText())
+                        if shouldShowNumberLabels {
+                            Text("\(game.pits[index])")
+                                .font(countFont(size: countSize))
+                                .foregroundStyle(primaryText)
+                                .contentTransition(.numericText())
+                        }
+                    }
                 }
             }
             .playerFacingRotation(tableRotationDegrees)
@@ -1762,37 +1984,36 @@ struct ContentView: View {
         let tint = isCurrent ? currentStoreTint : storeTint
 
         if compact {
-            HStack(spacing: 12) {
-                stoneCluster(count: game.storeCount(for: owner))
-                    .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 38)
-
-                if shouldShowNumberLabels {
-                    Text("\(game.storeCount(for: owner))")
-                        .font(countFont(size: 30))
-                        .foregroundStyle(primaryText)
-                        .frame(width: 48)
-                        .contentTransition(.numericText())
+            stoneCluster(count: game.storeCount(for: owner))
+                .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 38)
+                .overlay(alignment: .trailing) {
+                    if shouldShowNumberLabels {
+                        Text("\(game.storeCount(for: owner))")
+                            .font(countFont(size: 26))
+                            .foregroundStyle(visualTheme == .liquidGlass ? secondaryText : primaryText)
+                            .contentTransition(.numericText())
+                    }
                 }
-            }
-            .playerFacingRotation(tableRotationDegrees)
-            .padding(.horizontal, 14)
-            .mancalaGlassEffect(tint: tint, cornerRadius: 20, role: .store, interactive: isCurrent, seed: game.storeIndex(for: owner))
+                .playerFacingRotation(tableRotationDegrees)
+                .padding(.horizontal, 22)
+                .mancalaGlassEffect(tint: tint, cornerRadius: 20, role: .store, interactive: isCurrent, seed: game.storeIndex(for: owner))
         } else {
-            VStack(spacing: 7) {
-                stoneCluster(count: game.storeCount(for: owner))
-                    .frame(height: 48)
-
-                if shouldShowNumberLabels {
-                    Text("\(game.storeCount(for: owner))")
-                        .font(countFont(size: 34))
-                        .foregroundStyle(primaryText)
-                        .contentTransition(.numericText())
+            stoneCluster(count: game.storeCount(for: owner))
+                .frame(height: 48)
+                .frame(maxHeight: .infinity)
+                .overlay(alignment: .bottom) {
+                    if shouldShowNumberLabels {
+                        Text("\(game.storeCount(for: owner))")
+                            .font(countFont(size: 28))
+                            .foregroundStyle(visualTheme == .liquidGlass ? secondaryText : primaryText)
+                            .contentTransition(.numericText())
+                            .padding(.bottom, 4)
+                    }
                 }
-            }
-            .playerFacingRotation(tableRotationDegrees)
-            .frame(minHeight: 148)
-            .padding(10)
-            .mancalaGlassEffect(tint: tint, cornerRadius: 24, role: .store, interactive: isCurrent, seed: game.storeIndex(for: owner))
+                .playerFacingRotation(tableRotationDegrees)
+                .frame(minHeight: 148)
+                .padding(10)
+                .mancalaGlassEffect(tint: tint, cornerRadius: 24, role: .store, interactive: isCurrent, seed: game.storeIndex(for: owner))
         }
     }
 
@@ -1840,7 +2061,8 @@ struct ContentView: View {
         let movingPlayer = game.currentPlayer
         let moveAchievementResult = moveAchievementResult(for: selectedIndex, movingPlayer: movingPlayer)
         let path = game.sowingPath(from: selectedIndex)
-        guard let sourceFrame = cellFrames[selectedIndex], !path.isEmpty else {
+        let canAnimateVisually = is3DBoardActive || cellFrames[selectedIndex] != nil
+        guard canAnimateVisually, !path.isEmpty else {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 game.playPit(at: selectedIndex)
             }
@@ -1858,9 +2080,21 @@ struct ContentView: View {
 
         isAnimatingMove = true
         game.beginAnimatedMove(from: selectedIndex)
-        var currentPoint = sourceFrame.center
+        var currentPoint = cellFrames[selectedIndex]?.center ?? .zero
+        var currentWellIndex = selectedIndex
 
         for (step, destination) in path.enumerated() {
+            if is3DBoardActive {
+                await activeBoardScene?.flyStone(from: currentWellIndex, to: destination, colorIndex: step)
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
+                    game.depositStone(at: destination)
+                    hapticTrigger += 1
+                }
+                currentWellIndex = destination
+                try? await Task.sleep(for: .milliseconds(30))
+                continue
+            }
+
             guard let destinationFrame = cellFrames[destination] else { continue }
             let destinationPoint = destinationFrame.center
 
@@ -2145,8 +2379,27 @@ struct ContentView: View {
 
     @MainActor
     private func animateCaptureIfNeeded(lastIndex: Int) async -> Bool {
-        guard let capture = game.captureMove(afterLandingAt: lastIndex),
-              let storeFrame = cellFrames[capture.storeIndex] else {
+        guard let capture = game.captureMove(afterLandingAt: lastIndex) else {
+            return false
+        }
+
+        if is3DBoardActive {
+            let capturedSources = [capture.landingIndex] + Array(repeating: capture.oppositeIndex, count: capture.capturedStones)
+            for (step, sourceIndex) in capturedSources.enumerated() {
+                withAnimation(.spring(response: 0.18, dampingFraction: 0.80)) {
+                    game.removeStone(at: sourceIndex)
+                }
+                await activeBoardScene?.flyStone(from: sourceIndex, to: capture.storeIndex, colorIndex: step + 2)
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
+                    game.depositStone(at: capture.storeIndex)
+                    hapticTrigger += 1
+                }
+                try? await Task.sleep(for: .milliseconds(12))
+            }
+            return true
+        }
+
+        guard let storeFrame = cellFrames[capture.storeIndex] else {
             return false
         }
 
@@ -2369,55 +2622,6 @@ private struct InkDash: Shape {
 /// The visible side wall of an extruded rounded-rect slab: the band between the
 /// near edge of the top face and that same edge pushed down by `depth`. Corner
 /// curvature is sampled so the wall silhouette wraps around the rounded corners.
-private struct SlabSideShape: Shape {
-    var cornerRadius: CGFloat
-    var depth: CGFloat
-    var flipped: Bool
-
-    func path(in rect: CGRect) -> Path {
-        guard rect.width > 8, rect.height > 8 else { return Path() }
-
-        let radius = min(cornerRadius, min(rect.width, rect.height) / 2)
-        let arcSteps = 14
-        var boundary: [CGPoint] = []
-        boundary.reserveCapacity(arcSteps * 2 + 2)
-
-        for step in 0...arcSteps {
-            let theta = Double.pi - Double(step) / Double(arcSteps) * (Double.pi / 2)
-            boundary.append(CGPoint(
-                x: rect.minX + radius + radius * cos(theta),
-                y: rect.maxY - radius + radius * sin(theta)
-            ))
-        }
-        for step in 0...arcSteps {
-            let theta = Double.pi / 2 - Double(step) / Double(arcSteps) * (Double.pi / 2)
-            boundary.append(CGPoint(
-                x: rect.maxX - radius + radius * cos(theta),
-                y: rect.maxY - radius + radius * sin(theta)
-            ))
-        }
-
-        func resolved(_ point: CGPoint, extruded: Bool) -> CGPoint {
-            var result = CGPoint(x: point.x, y: point.y + (extruded ? depth : 0))
-            if flipped {
-                result.y = rect.minY + rect.maxY - result.y
-            }
-            return result
-        }
-
-        var path = Path()
-        path.move(to: resolved(boundary[0], extruded: false))
-        for point in boundary.dropFirst() {
-            path.addLine(to: resolved(point, extruded: false))
-        }
-        for point in boundary.reversed() {
-            path.addLine(to: resolved(point, extruded: true))
-        }
-        path.closeSubpath()
-        return path
-    }
-}
-
 private enum MancalaSurfaceRole {
     case board
     case pit
@@ -2554,49 +2758,51 @@ private struct MancalaSurfaceModifier: ViewModifier {
         )
     }
 
-    /// Extruded side wall that makes the board read as one solid block of frosted
-    /// glass. A single band shape spans from the near edge of the top face down to
-    /// the bottom of the slab, shaded darker toward the lip and toward the corners
-    /// where the wall turns away from the viewer. Follows the table flip.
+    /// Real slab thickness: a copy of the board face offset toward the near
+    /// edge, drawn behind it inside the board's 3D tilt so it foreshortens
+    /// with the perspective and reads as the front edge of one solid block.
+    /// A blurred ellipse grounds the block with a contact shadow.
     private var slabEdge: some View {
-        GeometryReader { proxy in
-            let depth: CGFloat = 32
-            let height = max(proxy.size.height, 1)
-            let radius = min(cornerRadius, min(proxy.size.width, proxy.size.height) / 2)
-            let side = SlabSideShape(cornerRadius: cornerRadius, depth: depth, flipped: isFlipped)
-            let adjacent = isFlipped
-                ? UnitPoint(x: 0.5, y: radius / height)
-                : UnitPoint(x: 0.5, y: (height - radius) / height)
-            let extremity = isFlipped
-                ? UnitPoint(x: 0.5, y: -depth / height)
-                : UnitPoint(x: 0.5, y: (height + depth) / height)
+        let thickness: CGFloat = 24
+
+        return ZStack {
+            Ellipse()
+                .fill(Color.black.opacity(isDark ? 0.50 : 0.26))
+                .blur(radius: 22)
+                .frame(height: 48)
+                .padding(.horizontal, 4)
+                .frame(maxHeight: .infinity, alignment: isFlipped ? .top : .bottom)
+                .offset(y: isFlipped ? -(thickness + 18) : thickness + 18)
 
             ZStack {
-                side.fill(
-                    LinearGradient(
-                        colors: isDark
-                            ? [Color.white.opacity(0.20), Color.white.opacity(0.02)]
-                            : [Color(red: 0.94, green: 0.94, blue: 0.95), Color(red: 0.70, green: 0.71, blue: 0.73)],
-                        startPoint: adjacent,
-                        endPoint: extremity
+                surfaceShape
+                    .fill(
+                        LinearGradient(
+                            colors: isDark
+                                ? [Color.white.opacity(0.14), Color.white.opacity(0.05)]
+                                : [Color(red: 0.86, green: 0.86, blue: 0.88), Color(red: 0.73, green: 0.73, blue: 0.76)],
+                            startPoint: farEdge,
+                            endPoint: nearEdge
+                        )
                     )
-                )
 
-                side.fill(
-                    LinearGradient(
-                        stops: [
-                            .init(color: Color.black.opacity(isDark ? 0.45 : 0.20), location: 0),
-                            .init(color: .clear, location: 0.15),
-                            .init(color: .clear, location: 0.85),
-                            .init(color: Color.black.opacity(isDark ? 0.45 : 0.20), location: 1)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
+                surfaceShape
+                    .fill(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.black.opacity(isDark ? 0.40 : 0.16), location: 0),
+                                .init(color: .clear, location: 0.12),
+                                .init(color: .clear, location: 0.88),
+                                .init(color: Color.black.opacity(isDark ? 0.40 : 0.16), location: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
                     )
-                )
             }
-            .shadow(color: Color.black.opacity(isDark ? 0.55 : 0.24), radius: 20, x: 0, y: isFlipped ? -12 : 16)
+            .offset(y: isFlipped ? -thickness : thickness)
         }
+        .allowsHitTesting(false)
     }
 
     /// Shading that makes a well read as a smooth concave depression in the
@@ -2695,6 +2901,12 @@ private struct MancalaSurfaceModifier: ViewModifier {
         }
     }
 
+    /// The board slab deliberately avoids `glassEffect`: on real hardware the
+    /// system renders it with live lensing and near-full transparency, which
+    /// washes the frosted look out against bright backgrounds (the simulator
+    /// only approximates it, so the two disagree). Frosted glass is opaque
+    /// enough that a material plus milky tint renders it faithfully — and
+    /// identically — everywhere. Panels and controls keep the native effect.
     @ViewBuilder
     private func glassBase(_ content: Content) -> some View {
         #if os(visionOS)
@@ -2702,7 +2914,15 @@ private struct MancalaSurfaceModifier: ViewModifier {
             surfaceShape.fill(tint)
         }
         #else
-        if #available(iOS 27.0, *) {
+        if role == .board {
+            content.background {
+                surfaceShape
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        surfaceShape.fill(tint)
+                    }
+            }
+        } else if #available(iOS 27.0, *) {
             content.glassEffect(.regular.tint(tint), in: .rect(cornerRadius: cornerRadius))
         } else {
             content.background {

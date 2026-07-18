@@ -1,0 +1,686 @@
+import RealityKit
+import SwiftUI
+import simd
+
+#if canImport(UIKit)
+import UIKit
+private typealias PlatformColor = UIColor
+#else
+import AppKit
+private typealias PlatformColor = NSColor
+#endif
+
+/// Tags a tap-target entity with the `MancalaGame.pits` index it represents.
+struct PitIndexComponent: Component {
+    let index: Int
+}
+
+
+/// Owns the RealityKit entity graph for the 3D board: the carved slab, the
+/// camera rig, lights, stones, highlight rings, and the sowing animation.
+/// `Board3DView` forwards SwiftUI state here; game logic stays in
+/// `MancalaGame`/`ContentView` and this class only mirrors it visually.
+@MainActor
+final class BoardScene {
+    var onPitTapped: ((Int) -> Void)?
+
+    private let root = Entity()
+    /// Orbits the whole camera rig around the board's vertical axis; the flip
+    /// arc animates this so the view swings to the opposite player's seat.
+    private let cameraOrbit = Entity()
+    private let cameraRig = Entity()
+    private let camera = PerspectiveCamera()
+    private let boardRoot = Entity()
+    private let iblEntity = Entity()
+    private let keyLight = Entity()
+
+    private var stones: [[Entity]] = Array(repeating: [], count: 14)
+    private var highlightRings: [ModelEntity] = []
+    private var labelAnchors: [Entity] = []
+    private var labelTextEntities: [ModelEntity] = []
+    private var labelTextMaterial = UnlitMaterial()
+    private var textMeshCache: [Int: MeshResource] = [:]
+
+    private var lightEnvironment: EnvironmentResource?
+    private var darkEnvironment: EnvironmentResource?
+
+    private var playableMaterial = UnlitMaterial()
+    private var hintMaterial = UnlitMaterial()
+    private var storeMaterial = UnlitMaterial()
+
+    /// The carved slab, kept so its finish can be swapped at runtime.
+    private var slab: ModelEntity?
+    private var appliedMaterial: BoardMaterialStyle?
+    private var materialCache: [BoardMaterialStyle: PhysicallyBasedMaterial] = [:]
+
+    private(set) var isBuilt = false
+
+    // Mirrored view state, so `sync` is cheap to call repeatedly.
+    private var appliedPits: [Int] = []
+    private var appliedPlayable: Set<Int> = []
+    private var appliedHinted: Int?
+    private var appliedStore: Int?
+    private var flipped = false
+    private var portrait = false
+    private var viewSize = CGSize(width: 1, height: 1)
+    private var labelsVisible = true
+    private var isDark = false
+    private var parallaxYaw: Float = 0
+    private var parallaxPitch: Float = 0
+    /// 0 at rest, peaks at 1 mid-flip; dollies the camera back during the swing.
+    private var flipArc: Float = 0
+    private var flipArcTask: Task<Void, Never>?
+
+    /// Camera elevation: a fairly high, near-top-down look at the board.
+    private let basePitch: Float = -0.92 // ≈ 53° looking down
+    private let fieldOfViewDegrees: Float = 40
+    /// Overscan factor pulling the camera back so the near (bottom) edge, its
+    /// rim, and the raised front-row stones/labels are never clipped.
+    private let boardFillMargin: Float = 1.2
+
+    /// Pass-and-play flip as a single rotation of the camera about the board's
+    /// horizontal (world-X) axis: the camera arcs up over the top to the
+    /// opposite seat and lands with the identical downward tilt mirrored for the
+    /// other player. This is the shortest path between the two correct views, so
+    /// only the camera appears to move — the board never spins. The angle is
+    /// derived so the far-seat view matches a 180° orbit + 180° roll.
+    private var flipRotation: Float { -(.pi + 2 * basePitch) }
+
+    // Pending state delivered before `build` finished.
+    private struct PendingSync {
+        var pits: [Int]
+        var playable: Set<Int>
+        var hinted: Int?
+        var currentStore: Int?
+        var flipped: Bool
+        var portrait: Bool
+        var viewSize: CGSize
+        var showLabels: Bool
+        var dark: Bool
+        var material: BoardMaterialStyle
+    }
+    private var pendingSync: PendingSync?
+
+    // MARK: - Build
+
+    /// Builds the full entity graph (idempotent) and returns the root for
+    /// `Board3DView` to add to the RealityView content.
+    func buildRoot() async -> Entity {
+        guard !isBuilt else {
+            return root
+        }
+        PitIndexComponent.registerComponent()
+
+        // Heavy procedural work: slab mesh, ring meshes, wood texture, and
+        // both lighting environments, all generated off the main actor.
+        let slabDataTask = Task.detached(priority: .userInitiated) {
+            BoardMeshBuilder.slabMeshData()
+        }
+        let ringDataTask = Task.detached(priority: .userInitiated) {
+            BoardLayout3D.wells.map { BoardMeshBuilder.ringMeshData(around: $0) }
+        }
+
+        let slabData = await slabDataTask.value
+        let ringData = await ringDataTask.value
+
+        // Slab. Built with a plain placeholder finish; the real textured
+        // material is baked and applied by `applyMaterial` for the selected
+        // style, so only the chosen finish is ever generated.
+        do {
+            let slabMesh = try await MeshResource(from: [BoardMeshBuilder.descriptor(from: slabData, name: "boardSlab")])
+            var placeholder = PhysicallyBasedMaterial()
+            placeholder.baseColor = .init(tint: PlatformColor(red: 0.42, green: 0.27, blue: 0.16, alpha: 1))
+            placeholder.roughness = 0.5
+            let slab = ModelEntity(mesh: slabMesh, materials: [placeholder])
+            #if os(visionOS)
+            // Seats the slab visually on the volume's baseplate / the real
+            // surface the volume is snapped to.
+            slab.components.set(GroundingShadowComponent(castsShadow: true))
+            #endif
+            boardRoot.addChild(slab)
+            self.slab = slab
+        } catch {
+            assertionFailure("Board slab generation failed: \(error)")
+        }
+
+        // Highlight rings, one per well, hidden until needed. Vertices are in
+        // absolute board coordinates, so the entities sit at the origin.
+        playableMaterial = makeRingMaterial(PlatformColor(red: 0.35, green: 0.80, blue: 1.0, alpha: 1), opacity: 0.85)
+        hintMaterial = makeRingMaterial(PlatformColor(red: 1.0, green: 0.84, blue: 0.20, alpha: 1), opacity: 0.95)
+        storeMaterial = makeRingMaterial(PlatformColor(red: 0.30, green: 0.85, blue: 0.45, alpha: 1), opacity: 0.7)
+        highlightRings = []
+        for data in ringData {
+            do {
+                let mesh = try await MeshResource(from: [BoardMeshBuilder.descriptor(from: data, name: "highlightRing")])
+                let ring = ModelEntity(mesh: mesh, materials: [playableMaterial])
+                ring.isEnabled = false
+                boardRoot.addChild(ring)
+                highlightRings.append(ring)
+            } catch {
+                highlightRings.append(ModelEntity())
+            }
+        }
+
+        // Tap targets and count labels per well. Labels are 3D text meshes
+        // (RealityView attachments are unavailable on iOS): a billboarded
+        // anchor holding a dark backing pill and a white digit mesh that
+        // `updateLabel` swaps whenever the count changes.
+        labelAnchors = []
+        labelTextEntities = []
+        labelTextMaterial = UnlitMaterial(color: .white)
+        var labelBackgroundMaterial = UnlitMaterial(color: .black)
+        labelBackgroundMaterial.blending = .transparent(opacity: .init(floatLiteral: 0.38))
+        for (index, well) in BoardLayout3D.wells.enumerated() {
+            let isStore = well.axisHalfLength > 0
+            if !isStore {
+                let target = Entity()
+                target.position = SIMD3(well.center.x, 0, well.center.y)
+                #if os(visionOS)
+                // Raised, slightly oversized poke target so a fingertip
+                // connects above the wood; playable by direct touch as well
+                // as gaze + pinch, with gaze/proximity hover feedback.
+                target.components.set(CollisionComponent(shapes: [
+                    .generateSphere(radius: well.radius * 1.25)
+                        .offsetBy(translation: SIMD3(0, 0.012, 0))
+                ]))
+                target.components.set(InputTargetComponent(allowedInputTypes: .all))
+                target.components.set(HoverEffectComponent())
+                #else
+                target.components.set(CollisionComponent(shapes: [.generateSphere(radius: well.radius * 1.1)]))
+                target.components.set(InputTargetComponent())
+                #endif
+                target.components.set(PitIndexComponent(index: index))
+                boardRoot.addChild(target)
+            }
+
+            let labelAnchor = Entity()
+            let outward: SIMD2<Float> = isStore
+                ? SIMD2(well.center.x > 0 ? 0.055 : -0.055, 0)
+                : SIMD2(0, well.center.y > 0 ? 0.042 : -0.042)
+            labelAnchor.position = SIMD3(well.center.x + outward.x, 0.035, well.center.y + outward.y)
+            labelAnchor.components.set(BillboardComponent())
+            boardRoot.addChild(labelAnchor)
+            labelAnchors.append(labelAnchor)
+
+            let background = ModelEntity(
+                mesh: .generatePlane(width: 0.038, height: 0.019, cornerRadius: 0.0095),
+                materials: [labelBackgroundMaterial]
+            )
+            labelAnchor.addChild(background)
+
+            let text = ModelEntity()
+            text.position = SIMD3(0, 0, 0.0012)
+            labelAnchor.addChild(text)
+            labelTextEntities.append(text)
+        }
+
+        #if !os(visionOS)
+        // Lighting: image-based light for the glass/varnish reflections plus
+        // a shadow-casting key light for stone grounding. Only the currently
+        // needed scheme's environment is built now; the other is constructed
+        // lazily the first time the color scheme flips, keeping launch cheaper.
+        // On visionOS neither is added: mixed immersion lights the board from
+        // the real room, so virtual lights would double-expose it.
+        if let environment = await ensureEnvironment(dark: isDark) {
+            iblEntity.components.set(ImageBasedLightComponent(source: .single(environment), intensityExponent: 0.9))
+            root.components.set(ImageBasedLightReceiverComponent(imageBasedLight: iblEntity))
+        }
+        root.addChild(iblEntity)
+
+        keyLight.components.set(DirectionalLightComponent(color: .white, intensity: isDark ? 1700 : 2600))
+        keyLight.components.set(DirectionalLightComponent.Shadow())
+        keyLight.orientation = simd_quatf(angle: -0.95, axis: SIMD3(1, 0, 0))
+            * simd_quatf(angle: 0.5, axis: SIMD3(0, 1, 0))
+        root.addChild(keyLight)
+
+        // Camera rig: pivot at the board center; parallax and the base pitch
+        // both rotate the rig, so the camera orbits the board like a viewer
+        // leaning around a physical object. `cameraOrbit` sits above the rig
+        // and carries only the flip yaw, so the flip arc never fights the live
+        // parallax writes that land on `cameraRig`. On visionOS there is no
+        // camera at all — the board is anchored in the room and the viewer
+        // simply moves around it.
+        camera.camera.fieldOfViewInDegrees = fieldOfViewDegrees
+        cameraRig.addChild(camera)
+        cameraOrbit.addChild(cameraRig)
+        root.addChild(cameraOrbit)
+        #endif
+
+        root.addChild(boardRoot)
+
+        isBuilt = true
+        if let pending = pendingSync {
+            pendingSync = nil
+            sync(
+                pits: pending.pits,
+                playable: pending.playable,
+                hinted: pending.hinted,
+                currentStore: pending.currentStore,
+                flipped: pending.flipped,
+                portrait: pending.portrait,
+                viewSize: pending.viewSize,
+                showLabels: pending.showLabels,
+                dark: pending.dark,
+                material: pending.material
+            )
+        } else {
+            updateBoardOrientation(animated: false)
+            updateCameraOrbit(animated: false)
+            updateCamera()
+            applyMaterial(.walnut)
+        }
+        return root
+    }
+
+    private func makeRingMaterial(_ color: PlatformColor, opacity: Float) -> UnlitMaterial {
+        var material = UnlitMaterial(color: color)
+        material.blending = .transparent(opacity: .init(floatLiteral: opacity))
+        material.faceCulling = .none
+        return material
+    }
+
+    // MARK: - Board finish
+
+    /// Physically based parameters that pair with each finish's base-color bake.
+    private struct FinishSpec {
+        let roughness: Float
+        let metallic: Float
+        let clearcoat: Float
+        let clearcoatRoughness: Float
+        let fallback: PlatformColor
+        /// Translucency for glass-like finishes; `nil` keeps the slab opaque.
+        var opacity: Float? = nil
+    }
+
+    private static func finishSpec(for style: BoardMaterialStyle) -> FinishSpec {
+        switch style {
+        case .walnut:
+            FinishSpec(roughness: 0.5, metallic: 0, clearcoat: 0.35, clearcoatRoughness: 0.4,
+                       fallback: PlatformColor(red: 0.42, green: 0.27, blue: 0.16, alpha: 1))
+        case .maple:
+            FinishSpec(roughness: 0.55, metallic: 0, clearcoat: 0.3, clearcoatRoughness: 0.45,
+                       fallback: PlatformColor(red: 0.80, green: 0.70, blue: 0.52, alpha: 1))
+        case .marble:
+            FinishSpec(roughness: 0.18, metallic: 0, clearcoat: 0.6, clearcoatRoughness: 0.2,
+                       fallback: PlatformColor(red: 0.88, green: 0.88, blue: 0.90, alpha: 1))
+        case .slate:
+            FinishSpec(roughness: 0.85, metallic: 0, clearcoat: 0, clearcoatRoughness: 1.0,
+                       fallback: PlatformColor(red: 0.16, green: 0.17, blue: 0.19, alpha: 1))
+        case .frostedGlass:
+            // Moderate roughness blurs the reflections (frosted, not clear); a
+            // glossy clearcoat over the top keeps a wet sheen. Partially
+            // translucent so it reads as glass rather than painted stone.
+            FinishSpec(roughness: 0.42, metallic: 0, clearcoat: 0.9, clearcoatRoughness: 0.25,
+                       fallback: PlatformColor(red: 0.82, green: 0.88, blue: 0.94, alpha: 1),
+                       opacity: 0.6)
+        }
+    }
+
+    /// Swap the slab's finish. The base-color bake runs off the main actor;
+    /// results are cached so switching back to a style is instant. Rapid
+    /// switching is safe — a late bake only applies if its style is still
+    /// selected.
+    private func applyMaterial(_ style: BoardMaterialStyle) {
+        appliedMaterial = style
+        if let cached = materialCache[style] {
+            slab?.model?.materials = [cached]
+            return
+        }
+        let spec = Self.finishSpec(for: style)
+        Task { [weak self] in
+            let image = await Task.detached(priority: .userInitiated) {
+                BoardTextureBuilder.baseColor(for: style)
+            }.value
+            guard let self else { return }
+
+            var material = PhysicallyBasedMaterial()
+            if let image, let texture = try? await TextureResource(image: image, options: .init(semantic: .color)) {
+                material.baseColor = .init(texture: .init(texture))
+            } else {
+                material.baseColor = .init(tint: spec.fallback)
+            }
+            material.roughness = .init(floatLiteral: spec.roughness)
+            material.metallic = .init(floatLiteral: spec.metallic)
+            material.clearcoat = .init(floatLiteral: spec.clearcoat)
+            material.clearcoatRoughness = .init(floatLiteral: spec.clearcoatRoughness)
+            if let opacity = spec.opacity {
+                material.blending = .transparent(opacity: .init(floatLiteral: opacity))
+            }
+
+            self.materialCache[style] = material
+            if self.appliedMaterial == style {
+                self.slab?.model?.materials = [material]
+            }
+        }
+    }
+
+    /// Cached digit mesh for a stone count (counts repeat constantly).
+    /// The font size is in scene meters — RealityKit text geometry uses the
+    /// point size directly as the em size.
+    private func textMesh(for count: Int) -> MeshResource {
+        if let cached = textMeshCache[count] {
+            return cached
+        }
+        let mesh = MeshResource.generateText(
+            "\(count)",
+            extrusionDepth: 0.001,
+            font: MeshResource.Font.systemFont(ofSize: 0.014, weight: .semibold),
+            containerFrame: .zero,
+            alignment: .center,
+            lineBreakMode: .byClipping
+        )
+        textMeshCache[count] = mesh
+        return mesh
+    }
+
+    private func updateLabel(_ index: Int, count: Int) {
+        guard labelTextEntities.indices.contains(index) else { return }
+        let mesh = textMesh(for: count)
+        let text = labelTextEntities[index]
+        text.model = ModelComponent(mesh: mesh, materials: [labelTextMaterial])
+        // generateText anchors at the baseline corner; recenter on the pill.
+        let bounds = mesh.bounds
+        text.position = SIMD3(-bounds.center.x, -bounds.center.y, 0.0012)
+    }
+
+    // MARK: - State sync
+
+    /// Idempotent mirror of the SwiftUI-observed state; cheap when unchanged.
+    func sync(
+        pits: [Int],
+        playable: Set<Int>,
+        hinted: Int?,
+        currentStore: Int?,
+        flipped: Bool,
+        portrait: Bool,
+        viewSize: CGSize,
+        showLabels: Bool,
+        dark: Bool,
+        material: BoardMaterialStyle
+    ) {
+        guard isBuilt else {
+            pendingSync = PendingSync(
+                pits: pits,
+                playable: playable,
+                hinted: hinted,
+                currentStore: currentStore,
+                flipped: flipped,
+                portrait: portrait,
+                viewSize: viewSize,
+                showLabels: showLabels,
+                dark: dark,
+                material: material
+            )
+            return
+        }
+
+        if material != appliedMaterial {
+            applyMaterial(material)
+        }
+        applyStones(pits: pits)
+        applyHighlights(playable: playable, hinted: hinted, currentStore: currentStore)
+
+        if flipped != self.flipped {
+            self.flipped = flipped
+            updateCameraOrbit(animated: true)
+        }
+        if portrait != self.portrait {
+            self.portrait = portrait
+            updateBoardOrientation(animated: true)
+            updateCamera()
+        }
+        if viewSize != self.viewSize {
+            self.viewSize = viewSize
+            updateCamera()
+        }
+        if showLabels != labelsVisible {
+            labelsVisible = showLabels
+            for anchor in labelAnchors {
+                anchor.isEnabled = showLabels
+            }
+        }
+        if dark != isDark {
+            isDark = dark
+            applyColorScheme()
+        }
+    }
+
+    /// Reconcile stone entities against the game's pit counts, O(delta).
+    /// Deterministic slots guarantee existing stones never reshuffle.
+    private func applyStones(pits: [Int]) {
+        guard pits.count == 14 else { return }
+        guard pits != appliedPits else { return }
+        let previous = appliedPits
+        appliedPits = pits
+
+        for index in 0..<14 {
+            if previous.count != 14 || previous[index] != pits[index] {
+                updateLabel(index, count: pits[index])
+            }
+
+            let target = min(pits[index], BoardLayout3D.visibleStoneCap)
+            var current = stones[index]
+            while current.count > target {
+                current.removeLast().removeFromParent()
+            }
+            while current.count < target {
+                let stone = StoneFactory.makeRestingStone(pitIndex: index, slot: current.count)
+                if root.scene == nil {
+                    // Populated before the root joins a RealityView (e.g. the
+                    // initial sync): animations can't run outside a scene, so
+                    // the grow-in would freeze at its tiny start scale. Place
+                    // the stone at rest, full size.
+                    boardRoot.addChild(stone)
+                } else {
+                    let restTransform = Transform(translation: stone.position)
+                    stone.transform.scale = SIMD3(repeating: 0.05)
+                    boardRoot.addChild(stone)
+                    stone.move(to: restTransform, relativeTo: boardRoot, duration: 0.18, timingFunction: .easeOut)
+                }
+                current.append(stone)
+            }
+            stones[index] = current
+        }
+    }
+
+    private func applyHighlights(playable: Set<Int>, hinted: Int?, currentStore: Int?) {
+        guard playable != appliedPlayable || hinted != appliedHinted || currentStore != appliedStore else {
+            return
+        }
+        appliedPlayable = playable
+        appliedHinted = hinted
+        appliedStore = currentStore
+
+        for (index, ring) in highlightRings.enumerated() {
+            if index == hinted {
+                ring.model?.materials = [hintMaterial]
+                ring.isEnabled = true
+            } else if playable.contains(index) {
+                ring.model?.materials = [playableMaterial]
+                ring.isEnabled = true
+            } else if index == currentStore {
+                ring.model?.materials = [storeMaterial]
+                ring.isEnabled = true
+            } else {
+                ring.isEnabled = false
+            }
+        }
+    }
+
+    private func applyColorScheme() {
+        #if os(visionOS)
+        // Real-room lighting; nothing scheme-dependent to swap.
+        return
+        #else
+        // The opposite scheme's environment may not be built yet; construct it
+        // lazily and swap the IBL in once ready (the key light updates instantly).
+        Task { [weak self] in
+            guard let self else { return }
+            let dark = self.isDark
+            if let environment = await self.ensureEnvironment(dark: dark), self.isDark == dark {
+                self.iblEntity.components.set(ImageBasedLightComponent(source: .single(environment), intensityExponent: 0.9))
+            }
+        }
+        keyLight.components.set(DirectionalLightComponent(color: .white, intensity: isDark ? 1700 : 2600))
+        #endif
+    }
+
+    /// Returns the image-based lighting environment for the given scheme,
+    /// building and caching it on first use. Image-based lighting is optional
+    /// (it only adds reflections); if the cubemap can't be built — some
+    /// simulators can't — this returns `nil` and the board renders with just
+    /// the key light rather than trapping.
+    private func ensureEnvironment(dark: Bool) async -> EnvironmentResource? {
+        if dark, let darkEnvironment { return darkEnvironment }
+        if !dark, let lightEnvironment { return lightEnvironment }
+        let image = await Task.detached(priority: .userInitiated) {
+            BoardTextureBuilder.environmentEquirect(dark: dark)
+        }.value
+        guard let image else { return nil }
+        do {
+            let environment = try await EnvironmentResource(equirectangular: image)
+            if dark { darkEnvironment = environment } else { lightEnvironment = environment }
+            return environment
+        } catch {
+            print("Board IBL environment unavailable, continuing without it: \(error)")
+            return nil
+        }
+    }
+
+    /// Portrait (-90°, so player one's store lands at the near/bottom edge)
+    /// rotates the physical board to fit the taller viewport. The pass-and-play
+    /// flip is handled by the camera orbit, not by spinning the board.
+    private func updateBoardOrientation(animated: Bool) {
+        let yaw: Float = portrait ? -.pi / 2 : 0
+        let transform = Transform(rotation: simd_quatf(angle: yaw, axis: SIMD3(0, 1, 0)))
+        if animated {
+            boardRoot.move(to: transform, relativeTo: root, duration: 0.45, timingFunction: .easeInOut)
+        } else {
+            boardRoot.transform = transform
+        }
+    }
+
+    /// Pass-and-play flip: arc the camera up and over the top of the board to
+    /// the opposite player's seat via a single rotation about the world-X axis
+    /// (`flipRotation`). Only the camera moves — the board never spins — and it
+    /// lands with the identical downward tilt mirrored for the other player. The
+    /// sweep is deliberately slow and paired with a mid-arc dolly-out (`flipArc`)
+    /// so the motion is unmistakable.
+    private func updateCameraOrbit(animated: Bool) {
+        #if os(visionOS)
+        // No camera to swing; players physically sit on opposite sides.
+        return
+        #else
+        let transform = Transform(rotation: simd_quatf(angle: flipped ? flipRotation : 0, axis: SIMD3(1, 0, 0)))
+        if animated {
+            let duration = 0.8
+            cameraOrbit.move(to: transform, relativeTo: root, duration: duration, timingFunction: .easeInOut)
+            animateFlipArc(duration: duration)
+        } else {
+            cameraOrbit.transform = transform
+        }
+        #endif
+    }
+
+    /// Drives `flipArc` 0 → 1 → 0 across the swing so `updateCamera` pulls the
+    /// camera back and lifts it at mid-arc, giving the flip a clear "fly around"
+    /// read. Runs alongside the `cameraOrbit` move and composes cleanly with the
+    /// live parallax writes (both go through `updateCamera`).
+    private func animateFlipArc(duration: Double) {
+        flipArcTask?.cancel()
+        flipArcTask = Task { [weak self] in
+            let steps = 40
+            let stepDuration = duration / Double(steps)
+            for step in 0...steps {
+                if Task.isCancelled { return }
+                let t = Float(step) / Float(steps)
+                self?.flipArc = sin(t * .pi)
+                self?.updateCamera()
+                try? await Task.sleep(for: .seconds(stepDuration))
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.flipArc = 0
+            self.updateCamera()
+        }
+    }
+
+    // MARK: - Camera
+
+    /// Frame the board for the current viewport and apply the parallax
+    /// offsets. Cheap enough to run per motion sample.
+    private func updateCamera() {
+        #if !os(visionOS)
+        let aspect = Float(viewSize.width / max(viewSize.height, 1))
+        let vFOV = fieldOfViewDegrees * .pi / 180
+        let hFOV = 2 * atan(tan(vFOV / 2) * max(aspect, 0.1))
+
+        // Tight margins so the board fills the viewport and can travel to the
+        // real screen edges under parallax rather than clipping short of them.
+        let alongScreenX = (portrait ? BoardLayout3D.depth : BoardLayout3D.width) / 2 + 0.012
+        let alongScreenY = (portrait ? BoardLayout3D.width : BoardLayout3D.depth) / 2 + 0.045
+        // The board lies nearly flat, so its z-extent is foreshortened by the
+        // camera pitch when projected to screen-vertical.
+        let pitch = -(basePitch)
+        let projectedY = alongScreenY * max(sin(pitch), 0.35) + 0.01
+        let baseDistance = max(
+            alongScreenX / tan(hFOV / 2),
+            projectedY / tan(vFOV / 2),
+            0.35
+        )
+        // Mid-flip dolly-out makes the 180° swing read as a deliberate fly-around.
+        let distance = baseDistance * boardFillMargin * (1 + 0.22 * flipArc)
+
+        camera.position = SIMD3(0, 0, distance)
+        cameraRig.orientation = simd_quatf(angle: parallaxYaw, axis: SIMD3(0, 1, 0))
+            * simd_quatf(angle: basePitch + parallaxPitch, axis: SIMD3(1, 0, 0))
+        #endif
+    }
+
+    /// Small smoothed offsets from device motion; the rig orbits the board
+    /// center so tilting the device reads as looking around the object.
+    func setParallax(yaw: Float, pitch: Float) {
+        guard isBuilt else { return }
+        parallaxYaw = yaw
+        parallaxPitch = pitch
+        updateCamera()
+    }
+
+    // MARK: - Sowing animation
+
+    /// Fly one stone from `from` to `to` along a low arc. The caller then
+    /// mutates the game model, and the resting stone appears via `sync`.
+    func flyStone(from: Int, to: Int, colorIndex: Int) async {
+        guard isBuilt,
+              BoardLayout3D.wells.indices.contains(from),
+              BoardLayout3D.wells.indices.contains(to) else {
+            return
+        }
+        let source = BoardLayout3D.wells[from].center
+        let destination = BoardLayout3D.wells[to].center
+        let start = SIMD3(source.x, 0.016, source.y)
+        let end = SIMD3(destination.x, 0.012, destination.y)
+        let apex = (start + end) / 2 + SIMD3(0, 0.055, 0)
+
+        let stone = StoneFactory.makeFlyingStone(colorIndex: colorIndex)
+        stone.position = start
+        boardRoot.addChild(stone)
+
+        let scale = stone.transform.scale
+        let rotation = stone.transform.rotation
+        stone.move(
+            to: Transform(scale: scale, rotation: rotation, translation: apex),
+            relativeTo: boardRoot,
+            duration: 0.10,
+            timingFunction: .easeOut
+        )
+        try? await Task.sleep(for: .milliseconds(100))
+        stone.move(
+            to: Transform(scale: scale, rotation: rotation, translation: end),
+            relativeTo: boardRoot,
+            duration: 0.10,
+            timingFunction: .easeIn
+        )
+        try? await Task.sleep(for: .milliseconds(100))
+        stone.removeFromParent()
+    }
+}
