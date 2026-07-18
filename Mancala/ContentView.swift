@@ -15,6 +15,7 @@ struct ContentView: View {
     @AppStorage("visualTheme") private var visualTheme = VisualTheme.liquidGlass
     @AppStorage("boardMaterialStyle") private var boardMaterialStyle = BoardMaterialStyle.walnut
     @AppStorage("gyroMotionEnabled") private var gyroMotionEnabled = true
+    @AppStorage("stoneAnimationSpeed") private var stoneAnimationSpeed = 1.0
     @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = false
     @AppStorage("difficulty") private var difficulty = AIDifficulty.medium
     @AppStorage("zeroPlayerOneDifficulty") private var zeroPlayerOneDifficulty = AIDifficulty.medium
@@ -990,6 +991,27 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                         #endif
                     }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Pebble Speed")
+                            Spacer()
+                            Text(String(format: "%.1f×", stoneAnimationSpeed))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(value: $stoneAnimationSpeed, in: 0.5...2.0, step: 0.1) {
+                            Text("Pebble Speed")
+                        } minimumValueLabel: {
+                            Image(systemName: "tortoise")
+                        } maximumValueLabel: {
+                            Image(systemName: "hare")
+                        }
+                    }
+
+                    Text("How quickly pebbles fly between pits.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Players") {
@@ -2080,41 +2102,47 @@ struct ContentView: View {
 
         isAnimatingMove = true
         game.beginAnimatedMove(from: selectedIndex)
-        var currentPoint = cellFrames[selectedIndex]?.center ?? .zero
-        var currentWellIndex = selectedIndex
 
-        for (step, destination) in path.enumerated() {
-            if is3DBoardActive {
-                await activeBoardScene?.flyStone(from: currentWellIndex, to: destination, colorIndex: step)
+        if is3DBoardActive {
+            // The whole picked-up pile travels together: lift it out of the
+            // source pit as a clump, glide it over each well on the path, and
+            // release one stone into each as it passes.
+            activeBoardScene?.animationSpeed = stoneAnimationSpeed
+            await activeBoardScene?.liftSowingCluster(from: selectedIndex, count: path.count)
+            for destination in path {
+                await activeBoardScene?.hopSowingCluster(to: destination)
+                await activeBoardScene?.dropSowingStone(at: destination)
                 withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
                     game.depositStone(at: destination)
                     hapticTrigger += 1
                 }
-                currentWellIndex = destination
-                try? await Task.sleep(for: .milliseconds(30))
-                continue
+                try? await Task.sleep(for: .seconds(0.03 / stoneAnimationSpeed))
             }
+        } else {
+            var currentPoint = cellFrames[selectedIndex]?.center ?? .zero
 
-            guard let destinationFrame = cellFrames[destination] else { continue }
-            let destinationPoint = destinationFrame.center
+            for (step, destination) in path.enumerated() {
+                guard let destinationFrame = cellFrames[destination] else { continue }
+                let destinationPoint = destinationFrame.center
 
-            flyingStone = FlyingStone(position: currentPoint, colorIndex: step)
-            try? await Task.sleep(for: .milliseconds(35))
+                flyingStone = FlyingStone(position: currentPoint, colorIndex: step)
+                try? await Task.sleep(for: .seconds(0.035 / stoneAnimationSpeed))
 
-            withAnimation(.spring(response: 0.26, dampingFraction: 0.72)) {
-                flyingStone?.position = destinationPoint
+                withAnimation(.spring(response: 0.26 / stoneAnimationSpeed, dampingFraction: 0.72)) {
+                    flyingStone?.position = destinationPoint
+                }
+
+                try? await Task.sleep(for: .seconds(0.15 / stoneAnimationSpeed))
+
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
+                    game.depositStone(at: destination)
+                    hapticTrigger += 1
+                    flyingStone = nil
+                }
+
+                currentPoint = destinationPoint
+                try? await Task.sleep(for: .seconds(0.03 / stoneAnimationSpeed))
             }
-
-            try? await Task.sleep(for: .milliseconds(150))
-
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
-                game.depositStone(at: destination)
-                hapticTrigger += 1
-                flyingStone = nil
-            }
-
-            currentPoint = destinationPoint
-            try? await Task.sleep(for: .milliseconds(30))
         }
 
         let lastIndex = path[path.count - 1]
@@ -2384,6 +2412,7 @@ struct ContentView: View {
         }
 
         if is3DBoardActive {
+            activeBoardScene?.animationSpeed = stoneAnimationSpeed
             let capturedSources = [capture.landingIndex] + Array(repeating: capture.oppositeIndex, count: capture.capturedStones)
             for (step, sourceIndex) in capturedSources.enumerated() {
                 withAnimation(.spring(response: 0.18, dampingFraction: 0.80)) {
@@ -2394,7 +2423,7 @@ struct ContentView: View {
                     game.depositStone(at: capture.storeIndex)
                     hapticTrigger += 1
                 }
-                try? await Task.sleep(for: .milliseconds(12))
+                try? await Task.sleep(for: .seconds(0.012 / stoneAnimationSpeed))
             }
             return true
         }
@@ -2418,13 +2447,13 @@ struct ContentView: View {
             }
 
             flyingStone = FlyingStone(position: sourcePoint, colorIndex: step + 2)
-            try? await Task.sleep(for: .milliseconds(20))
+            try? await Task.sleep(for: .seconds(0.02 / stoneAnimationSpeed))
 
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) {
+            withAnimation(.spring(response: 0.22 / stoneAnimationSpeed, dampingFraction: 0.72)) {
                 flyingStone?.position = storePoint
             }
 
-            try? await Task.sleep(for: .milliseconds(95))
+            try? await Task.sleep(for: .seconds(0.095 / stoneAnimationSpeed))
 
             withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
                 game.depositStone(at: capture.storeIndex)
@@ -2432,7 +2461,7 @@ struct ContentView: View {
                 flyingStone = nil
             }
 
-            try? await Task.sleep(for: .milliseconds(12))
+            try? await Task.sleep(for: .seconds(0.012 / stoneAnimationSpeed))
         }
 
         return true

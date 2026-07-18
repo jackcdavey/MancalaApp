@@ -647,8 +647,94 @@ final class BoardScene {
 
     // MARK: - Sowing animation
 
-    /// Fly one stone from `from` to `to` along a low arc. The caller then
-    /// mutates the game model, and the resting stone appears via `sync`.
+    /// User-adjustable multiplier for stone flight pace (1 = default);
+    /// durations divide by this, so higher is faster.
+    var animationSpeed: Double = 1.0
+
+    private func scaled(_ duration: TimeInterval) -> TimeInterval {
+        duration / min(max(animationSpeed, 0.25), 4)
+    }
+
+    /// The stones currently traveling as the picked-up pile; index 0 is the
+    /// bottom-center stone and the next to be released.
+    private var sowingCluster: [ModelEntity] = []
+    /// Height of the cluster's bottom layer while it floats across the board.
+    private let clusterHoverHeight: Float = 0.05
+
+    /// Hex-packed formation offset for the i-th remaining cluster stone:
+    /// one center stone and up to six around it per layer, layers stacked.
+    private static func clusterOffset(_ index: Int) -> SIMD3<Float> {
+        let layer = index / 7
+        let slot = index % 7
+        let y = Float(layer) * BoardLayout3D.stoneRadius * 1.7
+        guard slot > 0 else { return SIMD3(0, y, 0) }
+        let angle = Float(slot - 1) * (.pi / 3) + Float(layer) * 0.45
+        let radius = BoardLayout3D.stoneRadius * 1.95
+        return SIMD3(cos(angle) * radius, y, sin(angle) * radius)
+    }
+
+    /// Pick up the pile: spawn one flyer per sown stone on the resting slots
+    /// the game model just emptied (so the swap is seamless), then gather
+    /// them into a floating clump above the source well.
+    func liftSowingCluster(from: Int, count: Int) async {
+        guard isBuilt, BoardLayout3D.wells.indices.contains(from), count > 0 else { return }
+        for stone in sowingCluster {
+            stone.removeFromParent()
+        }
+        sowingCluster = []
+        for slot in 0..<count {
+            let stone = StoneFactory.makeFlyingStone(colorIndex: slot)
+            stone.position = BoardLayout3D.stoneSlot(pitIndex: from, slot: slot).position
+            boardRoot.addChild(stone)
+            sowingCluster.append(stone)
+        }
+        let well = BoardLayout3D.wells[from]
+        let duration = scaled(0.16)
+        moveCluster(over: well, duration: duration)
+        try? await Task.sleep(for: .seconds(duration))
+    }
+
+    /// Glide the remaining clump over the next well on the path.
+    func hopSowingCluster(to wellIndex: Int) async {
+        guard isBuilt, BoardLayout3D.wells.indices.contains(wellIndex), !sowingCluster.isEmpty else { return }
+        let duration = scaled(0.12)
+        moveCluster(over: BoardLayout3D.wells[wellIndex], duration: duration)
+        try? await Task.sleep(for: .seconds(duration))
+    }
+
+    /// Release the bottom stone of the clump into `wellIndex`. The caller
+    /// then mutates the game model, and the resting stone appears via `sync`.
+    /// The survivors re-pack around the gap on the next hop.
+    func dropSowingStone(at wellIndex: Int) async {
+        guard isBuilt, BoardLayout3D.wells.indices.contains(wellIndex), !sowingCluster.isEmpty else { return }
+        let stone = sowingCluster.removeFirst()
+        let well = BoardLayout3D.wells[wellIndex]
+        let target = Transform(
+            scale: stone.transform.scale,
+            rotation: stone.transform.rotation,
+            translation: SIMD3(well.center.x, 0.012, well.center.y)
+        )
+        let duration = scaled(0.09)
+        stone.move(to: target, relativeTo: boardRoot, duration: duration, timingFunction: .easeIn)
+        try? await Task.sleep(for: .seconds(duration))
+        stone.removeFromParent()
+    }
+
+    private func moveCluster(over well: BoardLayout3D.Well, duration: TimeInterval) {
+        let center = SIMD3(well.center.x, clusterHoverHeight, well.center.y)
+        for (index, stone) in sowingCluster.enumerated() {
+            let transform = Transform(
+                scale: stone.transform.scale,
+                rotation: stone.transform.rotation,
+                translation: center + Self.clusterOffset(index)
+            )
+            stone.move(to: transform, relativeTo: boardRoot, duration: duration, timingFunction: .easeInOut)
+        }
+    }
+
+    /// Fly one stone from `from` to `to` along a low arc (used for capture
+    /// sweeps). The caller then mutates the game model, and the resting stone
+    /// appears via `sync`.
     func flyStone(from: Int, to: Int, colorIndex: Int) async {
         guard isBuilt,
               BoardLayout3D.wells.indices.contains(from),
@@ -667,20 +753,21 @@ final class BoardScene {
 
         let scale = stone.transform.scale
         let rotation = stone.transform.rotation
+        let phaseDuration = scaled(0.10)
         stone.move(
             to: Transform(scale: scale, rotation: rotation, translation: apex),
             relativeTo: boardRoot,
-            duration: 0.10,
+            duration: phaseDuration,
             timingFunction: .easeOut
         )
-        try? await Task.sleep(for: .milliseconds(100))
+        try? await Task.sleep(for: .seconds(phaseDuration))
         stone.move(
             to: Transform(scale: scale, rotation: rotation, translation: end),
             relativeTo: boardRoot,
-            duration: 0.10,
+            duration: phaseDuration,
             timingFunction: .easeIn
         )
-        try? await Task.sleep(for: .milliseconds(100))
+        try? await Task.sleep(for: .seconds(phaseDuration))
         stone.removeFromParent()
     }
 }
