@@ -15,6 +15,44 @@ struct PitIndexComponent: Component {
     let index: Int
 }
 
+/// Per-frame motion state for a flying sowing stone: a damped-spring follower
+/// chasing `target`, so velocity carries across retargets — the pile
+/// accelerates out of a well, coasts, and settles into the next one instead
+/// of stopping dead on every hop.
+struct SowingMotionComponent: Component {
+    var target: SIMD3<Float>
+    var velocity: SIMD3<Float> = .zero
+    /// Spring constant of the follower; higher tracks the target tighter.
+    var stiffness: Float
+    /// Velocity decay rate; below critical (2·√stiffness) leaves a hint of
+    /// overshoot that reads as weight.
+    var damping: Float
+    /// Slow continuous tumble, so rotation drifts instead of jumping per hop.
+    var spinAxis: SIMD3<Float>
+    var spinSpeed: Float
+}
+
+/// Integrates every `SowingMotionComponent` each frame.
+struct SowingMotionSystem: System {
+    private static let query = EntityQuery(where: .has(SowingMotionComponent.self))
+
+    init(scene: RealityKit.Scene) {}
+
+    func update(context: SceneUpdateContext) {
+        // Clamp dt so a frame hitch can't fling the spring past its target.
+        let dt = Float(min(context.deltaTime, 1.0 / 30.0))
+        guard dt > 0 else { return }
+        for entity in context.entities(matching: Self.query, updatingSystemWhen: .rendering) {
+            guard var motion = entity.components[SowingMotionComponent.self] else { continue }
+            motion.velocity += (motion.target - entity.position) * motion.stiffness * dt
+            motion.velocity *= exp(-motion.damping * dt)
+            entity.position += motion.velocity * dt
+            entity.orientation = simd_quatf(angle: motion.spinSpeed * dt, axis: motion.spinAxis) * entity.orientation
+            entity.components.set(motion)
+        }
+    }
+}
+
 
 /// Owns the RealityKit entity graph for the 3D board: the carved slab, the
 /// camera rig, lights, stones, highlight rings, and the sowing animation.
@@ -35,6 +73,25 @@ final class BoardScene {
     private let keyLight = Entity()
 
     private var stones: [[Entity]] = Array(repeating: [], count: 14)
+    /// Palette index of every logical stone in every pit (uncapped, unlike the
+    /// visible `stones` entities). Colors travel with the sowing/capture
+    /// animations so each stone keeps one color for the whole game.
+    private var stoneColors: [[Int]] = Array(repeating: [], count: 14)
+    /// Colors queued by animated drops into a pit, consumed by `applyStones`
+    /// when the model's count for that pit grows.
+    private var pendingDropColors: [[Int]] = Array(repeating: [], count: 14)
+    /// Colors most recently trimmed from a pit by `applyStones`, kept so an
+    /// animation that starts after the model sync can still recover them.
+    private var lastRemovedColors: [[Int]] = Array(repeating: [], count: 14)
+    /// Rotating fallback so stones created without an animation event (initial
+    /// board, reset, undo) still get varied colors.
+    private var fallbackColorCursor = 0
+
+    private func nextFallbackColor() -> Int {
+        let color = fallbackColorCursor
+        fallbackColorCursor = (fallbackColorCursor + 1) % StoneFactory.palette.count
+        return color
+    }
     private var highlightRings: [ModelEntity] = []
     private var labelAnchors: [Entity] = []
     private var labelTextEntities: [ModelEntity] = []
@@ -110,6 +167,8 @@ final class BoardScene {
             return root
         }
         PitIndexComponent.registerComponent()
+        SowingMotionComponent.registerComponent()
+        SowingMotionSystem.registerSystem()
 
         // Heavy procedural work: slab mesh, ring meshes, wood texture, and
         // both lighting environments, all generated off the main actor.
@@ -458,13 +517,34 @@ final class BoardScene {
                 updateLabel(index, count: pits[index])
             }
 
-            let target = min(pits[index], BoardLayout3D.visibleStoneCap)
+            // Reconcile the color ledger to the logical count first: shrink
+            // stashes the removed colors for a late-starting animation to
+            // recover; growth consumes colors queued by animated drops, with
+            // the rotating fallback covering non-animated changes.
+            let logical = pits[index]
+            if stoneColors[index].count > logical {
+                lastRemovedColors[index] = Array(stoneColors[index][logical...])
+                stoneColors[index].removeSubrange(logical...)
+                pendingDropColors[index] = []
+            }
+            while stoneColors[index].count < logical {
+                let color = pendingDropColors[index].isEmpty
+                    ? nextFallbackColor()
+                    : pendingDropColors[index].removeFirst()
+                stoneColors[index].append(color)
+            }
+
+            let target = min(logical, BoardLayout3D.visibleStoneCap)
             var current = stones[index]
             while current.count > target {
                 current.removeLast().removeFromParent()
             }
             while current.count < target {
-                let stone = StoneFactory.makeRestingStone(pitIndex: index, slot: current.count)
+                let stone = StoneFactory.makeRestingStone(
+                    pitIndex: index,
+                    slot: current.count,
+                    colorIndex: stoneColors[index][current.count]
+                )
                 if root.scene == nil {
                     // Populated before the root joins a RealityView (e.g. the
                     // initial sync): animations can't run outside a scene, so
@@ -655,9 +735,24 @@ final class BoardScene {
         duration / min(max(animationSpeed, 0.25), 4)
     }
 
+    /// Spring parameters for the sowing follower, scaled so the cluster keeps
+    /// pace when the user speeds the animation up. Damping sits at ~0.8 of
+    /// critical, leaving a slight overshoot that reads as momentum.
+    private var springStiffness: Float {
+        let speed = Float(min(max(animationSpeed, 0.25), 4))
+        return 300 * speed * speed
+    }
+
+    private var springDamping: Float {
+        let speed = Float(min(max(animationSpeed, 0.25), 4))
+        return 28 * speed
+    }
+
     /// The stones currently traveling as the picked-up pile; index 0 is the
     /// bottom-center stone and the next to be released.
     private var sowingCluster: [ModelEntity] = []
+    /// Palette index of each cluster stone, parallel to `sowingCluster`.
+    private var sowingClusterColors: [Int] = []
     /// Height of the cluster's bottom layer while it floats across the board.
     private let clusterHoverHeight: Float = 0.05
 
@@ -682,24 +777,48 @@ final class BoardScene {
             stone.removeFromParent()
         }
         sowingCluster = []
+        // Claim the lifted stones' own colors. The model's sync may run before
+        // or after this call, so the pit ledger may already have been trimmed —
+        // in that case the colors are waiting in the removal stash.
+        var lifted = stoneColors[from]
+        stoneColors[from] = []
+        if lifted.isEmpty {
+            lifted = lastRemovedColors[from]
+        }
+        lastRemovedColors[from] = []
+        while lifted.count < count {
+            lifted.append(nextFallbackColor())
+        }
+        sowingClusterColors = Array(lifted.prefix(count))
         for slot in 0..<count {
-            let stone = StoneFactory.makeFlyingStone(colorIndex: slot)
+            let stone = StoneFactory.makeFlyingStone(colorIndex: sowingClusterColors[slot])
             stone.position = BoardLayout3D.stoneSlot(pitIndex: from, slot: slot).position
+            var axis = SIMD3(
+                Float.random(in: -1...1),
+                Float.random(in: -1...1),
+                Float.random(in: -1...1)
+            )
+            axis = simd_length(axis) > 0.01 ? simd_normalize(axis) : SIMD3(0, 1, 0)
+            stone.components.set(SowingMotionComponent(
+                target: stone.position,
+                stiffness: springStiffness,
+                damping: springDamping,
+                spinAxis: axis,
+                spinSpeed: Float.random(in: 1.0...2.2) * (Bool.random() ? 1 : -1)
+            ))
             boardRoot.addChild(stone)
             sowingCluster.append(stone)
         }
         let well = BoardLayout3D.wells[from]
-        let duration = scaled(0.16)
-        moveCluster(over: well, duration: duration)
-        try? await Task.sleep(for: .seconds(duration))
+        moveCluster(over: well)
+        try? await Task.sleep(for: .seconds(scaled(0.16)))
     }
 
     /// Glide the remaining clump over the next well on the path.
     func hopSowingCluster(to wellIndex: Int) async {
         guard isBuilt, BoardLayout3D.wells.indices.contains(wellIndex), !sowingCluster.isEmpty else { return }
-        let duration = scaled(0.12)
-        moveCluster(over: BoardLayout3D.wells[wellIndex], duration: duration)
-        try? await Task.sleep(for: .seconds(duration))
+        moveCluster(over: BoardLayout3D.wells[wellIndex])
+        try? await Task.sleep(for: .seconds(scaled(0.12)))
     }
 
     /// Release the bottom stone of the clump into `wellIndex`. The caller
@@ -708,6 +827,14 @@ final class BoardScene {
     func dropSowingStone(at wellIndex: Int) async {
         guard isBuilt, BoardLayout3D.wells.indices.contains(wellIndex), !sowingCluster.isEmpty else { return }
         let stone = sowingCluster.removeFirst()
+        // Queue the dropped stone's color so the resting stone the model sync
+        // creates in this pit keeps the same color.
+        if !sowingClusterColors.isEmpty {
+            pendingDropColors[wellIndex].append(sowingClusterColors.removeFirst())
+        }
+        // Hand the stone back to a plain animation for the drop so the spring
+        // follower stops steering it mid-fall.
+        stone.components.remove(SowingMotionComponent.self)
         let well = BoardLayout3D.wells[wellIndex]
         let target = Transform(
             scale: stone.transform.scale,
@@ -720,34 +847,55 @@ final class BoardScene {
         stone.removeFromParent()
     }
 
-    private func moveCluster(over well: BoardLayout3D.Well, duration: TimeInterval) {
+    /// Retarget the spring follower on every cluster stone. Per-hop wobble
+    /// keeps the clump reading as loose stones in hand; the spring turns each
+    /// retarget into a drift rather than a snap. Wobble stays well under half
+    /// the formation spacing so stones never visibly interpenetrate.
+    private func moveCluster(over well: BoardLayout3D.Well) {
         let center = SIMD3(well.center.x, clusterHoverHeight, well.center.y)
+        let jitter = BoardLayout3D.stoneRadius * 0.3
         for (index, stone) in sowingCluster.enumerated() {
-            let transform = Transform(
-                scale: stone.transform.scale,
-                rotation: stone.transform.rotation,
-                translation: center + Self.clusterOffset(index)
+            guard var motion = stone.components[SowingMotionComponent.self] else { continue }
+            let wobble = SIMD3(
+                Float.random(in: -jitter...jitter),
+                Float.random(in: -jitter * 0.6...jitter * 0.6),
+                Float.random(in: -jitter...jitter)
             )
-            stone.move(to: transform, relativeTo: boardRoot, duration: duration, timingFunction: .easeInOut)
+            motion.target = center + Self.clusterOffset(index) + wobble
+            motion.stiffness = springStiffness
+            motion.damping = springDamping
+            stone.components.set(motion)
         }
     }
 
     /// Fly one stone from `from` to `to` along a low arc (used for capture
-    /// sweeps). The caller then mutates the game model, and the resting stone
-    /// appears via `sync`.
-    func flyStone(from: Int, to: Int, colorIndex: Int) async {
+    /// sweeps). The caller removes the stone from the model first and deposits
+    /// it after; the flyer claims that stone's own color from the ledger (or
+    /// the removal stash if the sync already trimmed it) and queues it for the
+    /// destination so the color survives the trip.
+    func flyStone(from: Int, to: Int) async {
         guard isBuilt,
               BoardLayout3D.wells.indices.contains(from),
               BoardLayout3D.wells.indices.contains(to) else {
             return
         }
+        let color: Int
+        if !lastRemovedColors[from].isEmpty {
+            color = lastRemovedColors[from].removeLast()
+        } else if !stoneColors[from].isEmpty {
+            color = stoneColors[from].removeLast()
+        } else {
+            color = nextFallbackColor()
+        }
+        pendingDropColors[to].append(color)
+
         let source = BoardLayout3D.wells[from].center
         let destination = BoardLayout3D.wells[to].center
         let start = SIMD3(source.x, 0.016, source.y)
         let end = SIMD3(destination.x, 0.012, destination.y)
         let apex = (start + end) / 2 + SIMD3(0, 0.055, 0)
 
-        let stone = StoneFactory.makeFlyingStone(colorIndex: colorIndex)
+        let stone = StoneFactory.makeFlyingStone(colorIndex: color)
         stone.position = start
         boardRoot.addChild(stone)
 

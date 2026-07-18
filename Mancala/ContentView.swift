@@ -2414,11 +2414,11 @@ struct ContentView: View {
         if is3DBoardActive {
             activeBoardScene?.animationSpeed = stoneAnimationSpeed
             let capturedSources = [capture.landingIndex] + Array(repeating: capture.oppositeIndex, count: capture.capturedStones)
-            for (step, sourceIndex) in capturedSources.enumerated() {
+            for sourceIndex in capturedSources {
                 withAnimation(.spring(response: 0.18, dampingFraction: 0.80)) {
                     game.removeStone(at: sourceIndex)
                 }
-                await activeBoardScene?.flyStone(from: sourceIndex, to: capture.storeIndex, colorIndex: step + 2)
+                await activeBoardScene?.flyStone(from: sourceIndex, to: capture.storeIndex)
                 withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
                     game.depositStone(at: capture.storeIndex)
                     hapticTrigger += 1

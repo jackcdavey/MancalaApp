@@ -72,7 +72,10 @@ enum StoneFactory {
     /// A stone resting in its deterministic slot. The returned container is
     /// axis-aligned at the slot position; squash/rotation live on the child
     /// model so the contact-shadow disc stays flat against the bowl.
-    static func makeRestingStone(pitIndex: Int, slot: Int) -> Entity {
+    /// `colorIndex` is the stone's own persistent color, tracked by the
+    /// scene's ledger — never derived from the slot, so a stone keeps its
+    /// color no matter which pile position it lands in.
+    static func makeRestingStone(pitIndex: Int, slot: Int, colorIndex: Int) -> Entity {
         prepare()
         guard let sphereMesh else { return Entity() }
 
@@ -80,7 +83,7 @@ enum StoneFactory {
         let container = Entity()
         container.position = slotInfo.position
 
-        let model = ModelEntity(mesh: sphereMesh, materials: [material(forColorIndex: slot)])
+        let model = ModelEntity(mesh: sphereMesh, materials: [material(forColorIndex: colorIndex)])
         model.scale = slotInfo.scale
         model.orientation = slotInfo.orientation
         container.addChild(model)
