@@ -85,17 +85,18 @@ struct ContentView: View {
             ZStack {
                 background
 
-                if isPortrait {
-                    gameContent(isPortrait: true, availableHeight: availableHeight)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, verticalPadding)
-                        .frame(maxWidth: 520)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                } else {
-                    gameContent(isPortrait: false, availableHeight: availableHeight)
-                        .padding(verticalPadding)
-                        .frame(maxWidth: 980)
-                }
+                // A single call site kept stable across orientation changes —
+                // not an `if isPortrait {...} else {...}` branch — so the 3D
+                // board's RealityView (nested inside `gameContent`) is never
+                // torn down and recreated on rotation. Recreating it loses the
+                // RealityKit scene the persisted `BoardScene` entity graph was
+                // attached to, leaving the board invisible (same failure mode
+                // as switching visual themes; see the ZStack in `gameContent`).
+                gameContent(isPortrait: isPortrait, availableHeight: availableHeight)
+                    .padding(.horizontal, isPortrait ? 16 : 0)
+                    .padding(.vertical, verticalPadding)
+                    .frame(maxWidth: isPortrait ? 520 : 980)
+                    .frame(maxWidth: .infinity, maxHeight: isPortrait ? .infinity : nil, alignment: isPortrait ? .top : .center)
 
                 if game.isGameOver {
                     endGamePopup
@@ -172,7 +173,7 @@ struct ContentView: View {
     }
 
     private var lightBackgroundColors: [Color] {
-        if visualTheme == .calligraphy {
+        if visualTheme == .flat {
             return [.white, .white]
         }
 
@@ -184,7 +185,7 @@ struct ContentView: View {
     }
 
     private var darkBackgroundColors: [Color] {
-        if visualTheme == .calligraphy {
+        if visualTheme == .flat {
             return [.white, .white]
         }
 
@@ -196,53 +197,53 @@ struct ContentView: View {
     }
 
     private var primaryText: Color {
-        if visualTheme == .calligraphy {
+        if visualTheme == .flat {
             return .black
         }
         return isDarkMode ? .white : Color(red: 0.08, green: 0.10, blue: 0.12)
     }
 
     private var secondaryText: Color {
-        primaryText.opacity(visualTheme == .calligraphy ? 0.58 : (isDarkMode ? 0.72 : 0.64))
+        primaryText.opacity(visualTheme == .flat ? 0.58 : (isDarkMode ? 0.72 : 0.64))
     }
 
     private var boardTint: Color {
-        if visualTheme == .calligraphy {
+        if visualTheme == .flat {
             return .white
         }
         return isDarkMode ? Color.white.opacity(0.09) : Color.white.opacity(0.62)
     }
 
     private var pitTint: Color {
-        if visualTheme == .calligraphy {
+        if visualTheme == .flat {
             return .white
         }
         return isDarkMode ? Color.white.opacity(0.07) : Color.white.opacity(0.22)
     }
 
     private var playableTint: Color {
-        if visualTheme == .calligraphy {
+        if visualTheme == .flat {
             return .white
         }
         return isDarkMode ? Color.cyan.opacity(0.14) : Color.blue.opacity(0.10)
     }
 
     private var storeTint: Color {
-        if visualTheme == .calligraphy {
+        if visualTheme == .flat {
             return .white
         }
         return isDarkMode ? Color.white.opacity(0.08) : Color.white.opacity(0.24)
     }
 
     private var currentStoreTint: Color {
-        if visualTheme == .calligraphy {
+        if visualTheme == .flat {
             return .white
         }
         return isDarkMode ? Color.green.opacity(0.16) : Color.green.opacity(0.10)
     }
 
     private func displayFont(size: CGFloat, weight: Font.Weight) -> Font {
-        .system(size: size, weight: weight, design: visualTheme == .calligraphy ? .serif : .rounded)
+        .system(size: size, weight: weight, design: visualTheme == .flat ? .default : .rounded)
     }
 
     private func countFont(size: CGFloat, weight: Font.Weight = .semibold) -> Font {
@@ -566,50 +567,35 @@ struct ContentView: View {
             header(isPortrait: isPortrait)
                 .frame(height: headerHeight)
 
+            #if os(visionOS)
             if is3DBoardActive {
-                #if os(visionOS)
                 spatialBoardPlaceholder(boardHeight: boardHeight)
-                #else
+            } else {
+                twoDimensionalBoard(isPortrait: isPortrait, boardHeight: boardHeight, portraitPitHeight: portraitPitHeight, portraitStoreHeight: portraitStoreHeight)
+            }
+            #else
+            ZStack {
+                // Kept mounted at all times, even when another theme is showing:
+                // tearing down and recreating the RealityView loses the RealityKit
+                // scene the persisted `BoardScene` entity graph was attached to, so
+                // reusing that graph in a freshly recreated RealityView renders
+                // nothing. Hiding it in place avoids ever destroying it.
                 board3DSection(isPortrait: isPortrait, boardHeight: boardHeight)
                     // Break out of `gameContent`'s horizontal inset so the board
                     // spans the full screen width and can travel to the real
                     // edges when parallax tilts it (header/status stay inset).
-                    .padding(.horizontal, isPortrait ? -16 : -10)
-                #endif
-            } else {
-                boardContainer {
-                    if isPortrait {
-                        portraitBoard(pitHeight: portraitPitHeight, storeHeight: portraitStoreHeight)
-                    } else {
-                        wideBoard
-                    }
+                    // Only applied while actually shown, so the hidden layer
+                    // doesn't widen the ZStack when the 2D board is active.
+                    .padding(.horizontal, is3DBoardActive ? (isPortrait ? -16 : -10) : 0)
+                    .opacity(is3DBoardActive ? 1 : 0)
+                    .allowsHitTesting(is3DBoardActive)
+                    .accessibilityHidden(!is3DBoardActive)
+
+                if !is3DBoardActive {
+                    twoDimensionalBoard(isPortrait: isPortrait, boardHeight: boardHeight, portraitPitHeight: portraitPitHeight, portraitStoreHeight: portraitStoreHeight)
                 }
-                .padding(.horizontal, visualTheme == .liquidGlass ? (isPortrait ? 30 : 48) : 0)
-                .frame(height: isPortrait ? boardHeight : nil)
-                .coordinateSpace(name: "BoardSpace")
-                .overlayPreferenceValue(CellFramePreferenceKey.self) { preferences in
-                    GeometryReader { proxy in
-                        Color.clear
-                            .onAppear {
-                                updateCellFrames(preferences, proxy: proxy)
-                            }
-                            .onChange(of: preferences) { _, newValue in
-                                updateCellFrames(newValue, proxy: proxy)
-                            }
-                    }
-                }
-                .overlay(alignment: .topLeading) {
-                    if let flyingStone {
-                        animatedStone(flyingStone)
-                    }
-                }
-                .rotation3DEffect(
-                    .degrees(boardTiltDegrees),
-                    axis: (x: 1, y: 0, z: 0),
-                    perspective: 0.45
-                )
-                .animation(.spring(response: 0.38, dampingFraction: 0.86), value: boardTiltDegrees)
             }
+            #endif
 
             if isPortrait && shouldShowStatusPanel {
                 statusPanel
@@ -617,6 +603,41 @@ struct ContentView: View {
             }
         }
         .padding(.bottom, !isPortrait && visualTheme == .liquidGlass && !is3DBoardActive ? 30 : 0)
+    }
+
+    private func twoDimensionalBoard(isPortrait: Bool, boardHeight: CGFloat, portraitPitHeight: CGFloat, portraitStoreHeight: CGFloat) -> some View {
+        boardContainer {
+            if isPortrait {
+                portraitBoard(pitHeight: portraitPitHeight, storeHeight: portraitStoreHeight)
+            } else {
+                wideBoard
+            }
+        }
+        .padding(.horizontal, visualTheme == .liquidGlass ? (isPortrait ? 30 : 48) : 0)
+        .frame(height: isPortrait ? boardHeight : nil)
+        .coordinateSpace(name: "BoardSpace")
+        .overlayPreferenceValue(CellFramePreferenceKey.self) { preferences in
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        updateCellFrames(preferences, proxy: proxy)
+                    }
+                    .onChange(of: preferences) { _, newValue in
+                        updateCellFrames(newValue, proxy: proxy)
+                    }
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if let flyingStone {
+                animatedStone(flyingStone)
+            }
+        }
+        .rotation3DEffect(
+            .degrees(boardTiltDegrees),
+            axis: (x: 1, y: 0, z: 0),
+            perspective: 0.45
+        )
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: boardTiltDegrees)
     }
 
     #if os(visionOS)
@@ -753,7 +774,7 @@ struct ContentView: View {
 
                 Image(systemName: endGameSymbolName)
                     .font(.system(size: 38, weight: .bold))
-                    .foregroundStyle(game.isDraw ? Color.secondary : (visualTheme == .calligraphy ? Color.black : Color.yellow))
+                    .foregroundStyle(game.isDraw ? Color.secondary : (visualTheme == .flat ? Color.black : Color.yellow))
                     .scaleEffect(endGameAnimationPulse ? 1.08 : 0.96)
                     .shadow(color: .black.opacity(isDarkMode ? 0.34 : 0.16), radius: 8, x: 0, y: 4)
             }
@@ -832,12 +853,12 @@ struct ContentView: View {
             .padding(.vertical, 5)
             .background {
                 Capsule(style: .continuous)
-                    .fill(visualTheme == .calligraphy ? Color.white : tint.opacity(isDarkMode ? 0.24 : 0.18))
+                    .fill(visualTheme == .flat ? Color.white : tint.opacity(isDarkMode ? 0.24 : 0.18))
             }
             .overlay {
                 Capsule(style: .continuous)
                     .stroke(
-                        visualTheme == .calligraphy ? Color.black.opacity(0.65) : tint.opacity(isDarkMode ? 0.72 : 0.58),
+                        visualTheme == .flat ? Color.black.opacity(0.65) : tint.opacity(isDarkMode ? 0.72 : 0.58),
                         lineWidth: 1
                     )
             }
@@ -851,10 +872,10 @@ struct ContentView: View {
                     .font(displayFont(size: 34, weight: .semibold))
                     .foregroundStyle(primaryText)
 
-                if visualTheme == .calligraphy {
-                    InkDash()
+                if visualTheme == .flat {
+                    Rectangle()
                         .fill(Color.black.opacity(0.82))
-                        .frame(width: 92, height: 5)
+                        .frame(width: 92, height: 3)
                         .padding(.bottom, 1)
                         .accessibilityHidden(true)
                 }
@@ -972,7 +993,7 @@ struct ContentView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    Text(visualTheme == .calligraphy ? "Plain black and white, with hand-inked brushstrokes for the board and pits." : "A frosted glass board with depth, viewed at a slight angle.")
+                    Text(visualTheme == .flat ? "Plain black and white, ultra minimal with no depth or texture." : "A frosted glass board with depth, viewed at a slight angle.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
@@ -1424,13 +1445,13 @@ struct ContentView: View {
 
             HStack(alignment: .top, spacing: 10) {
                 VStack(spacing: 8) {
-                    ForEach(Array(game.playerTwoPitIndices.reversed()), id: \.self) { index in
+                    ForEach(game.playerOnePitIndices, id: \.self) { index in
                         pitButton(index: index, minHeight: pitHeight)
                     }
                 }
 
                 VStack(spacing: 8) {
-                    ForEach(game.playerOnePitIndices, id: \.self) { index in
+                    ForEach(Array(game.playerTwoPitIndices.reversed()), id: \.self) { index in
                         pitButton(index: index, minHeight: pitHeight)
                     }
                 }
@@ -1564,9 +1585,9 @@ struct ContentView: View {
             .mancalaGlassEffect(tint: isPlayable ? playableTint : pitTint, cornerRadius: 20, role: .pit, interactive: isPlayable, seed: index)
             .overlay {
                 if isHinted {
-                    if visualTheme == .calligraphy {
-                        InkRing(seed: index &+ 9, exponent: 2.0, weightFraction: 0.030)
-                            .fill(Color.black.opacity(0.9), style: FillStyle(eoFill: true))
+                    if visualTheme == .flat {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(Color.black.opacity(0.9), lineWidth: 2.5)
                             .padding(-6)
                             .transition(.opacity.combined(with: .scale(scale: 1.03)))
                             .allowsHitTesting(false)
@@ -2472,7 +2493,7 @@ struct ContentView: View {
     }
 
     private func stoneColor(for index: Int) -> Color {
-        if visualTheme == .calligraphy {
+        if visualTheme == .flat {
             let inkWash = [
                 Color.black,
                 Color(red: 0.12, green: 0.12, blue: 0.12),
@@ -2502,149 +2523,6 @@ struct ContentView: View {
         let base = offsets[index % offsets.count]
         let layer = CGFloat(index / offsets.count) * 2.2
         return CGSize(width: base.width + layer, height: base.height - layer)
-    }
-}
-
-/// A closed brush-stroke ring with hand-drawn wobble and variable ink weight.
-/// `exponent` shapes the ring: 2 is an ellipse, higher values approach a rounded rectangle.
-private struct InkRing: Shape {
-    var seed: Int
-    var exponent: Double
-    var weightFraction: Double
-    var wobble: Double = 0.016
-
-    func path(in rect: CGRect) -> Path {
-        guard rect.width > 4, rect.height > 4 else { return Path() }
-
-        let steps = 110
-        let minDimension = min(rect.width, rect.height)
-        let baseWeight = min(max(minDimension * weightFraction, 1.1), 6.5)
-        let phaseOne = Double((seed &* 73) % 628) / 100
-        let phaseTwo = Double((seed &* 131) % 628) / 100
-        let phaseThree = Double((seed &* 197) % 628) / 100
-
-        let inset = baseWeight * 0.9 + minDimension * wobble
-        let a = rect.width / 2 - inset
-        let b = rect.height / 2 - inset
-        let e = 2.0 / exponent
-
-        var outerPoints: [CGPoint] = []
-        var innerPoints: [CGPoint] = []
-        outerPoints.reserveCapacity(steps)
-        innerPoints.reserveCapacity(steps)
-
-        for step in 0..<steps {
-            let theta = Double(step) / Double(steps) * 2 * .pi
-            let cosine = cos(theta)
-            let sine = sin(theta)
-            let x = a * pow(abs(cosine), e) * (cosine < 0 ? -1 : 1)
-            let y = b * pow(abs(sine), e) * (sine < 0 ? -1 : 1)
-            let length = max(sqrt(x * x + y * y), 0.001)
-            let unitX = x / length
-            let unitY = y / length
-            let sway = 1 + wobble * (0.62 * sin(2 * theta + phaseOne) + 0.38 * sin(5 * theta + phaseTwo))
-            let halfWeight = baseWeight * max(0.30, 1 + 0.42 * sin(3 * theta + phaseThree) + 0.18 * sin(7 * theta + phaseOne)) / 2
-            outerPoints.append(CGPoint(x: rect.midX + x * sway + unitX * halfWeight, y: rect.midY + y * sway + unitY * halfWeight))
-            innerPoints.append(CGPoint(x: rect.midX + x * sway - unitX * halfWeight, y: rect.midY + y * sway - unitY * halfWeight))
-        }
-
-        var path = Path()
-        path.addLines(outerPoints)
-        path.closeSubpath()
-        path.addLines(Array(innerPoints.reversed()))
-        path.closeSubpath()
-        return path
-    }
-}
-
-/// A curved brush stroke that cups an element from below, like the base of a bowl:
-/// the centerline bows downward, the body swells with a wet-ink belly, the head is
-/// blunt and rounded, and the tail tapers to a lifted point. High-frequency seeded
-/// texture keeps the edges from reading as clean vector lines. Odd seeds sweep the
-/// opposite direction.
-private struct InkBrushStroke: Shape {
-    var seed: Int
-    var weight: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        guard rect.width > 8, rect.height > 2 else { return Path() }
-
-        let steps = 44
-        let flip = seed % 2 == 1
-        let phaseOne = Double((seed &* 73) % 628) / 100
-        let phaseTwo = Double((seed &* 131) % 628) / 100
-
-        let strokeWeight = Double(min(weight, rect.height * 0.60))
-        let bow = min(Double(rect.height) - strokeWeight, Double(rect.width) * 0.10) * 0.9
-
-        func xAt(_ t: Double) -> Double {
-            let fraction = flip ? 1 - t : t
-            return Double(rect.minX) + fraction * Double(rect.width)
-        }
-
-        func centerY(_ t: Double) -> Double {
-            Double(rect.minY) + strokeWeight / 2
-                + bow * sin(.pi * t)
-                + strokeWeight * 0.06 * sin(9 * t + phaseOne)
-        }
-
-        func halfWeight(_ t: Double) -> Double {
-            let body = pow(sin(.pi * (0.08 + 0.92 * pow(t, 0.9))), 0.72)
-            let texture = 1 + 0.14 * sin(13 * t + phaseOne) + 0.08 * sin(29 * t + phaseTwo)
-            return max(0, strokeWeight / 2 * body * texture)
-        }
-
-        var topPoints: [CGPoint] = []
-        var bottomPoints: [CGPoint] = []
-        topPoints.reserveCapacity(steps + 1)
-        bottomPoints.reserveCapacity(steps + 1)
-
-        for step in 0...steps {
-            let t = Double(step) / Double(steps)
-            let x = xAt(t)
-            let y = centerY(t)
-            let half = halfWeight(t)
-            topPoints.append(CGPoint(x: x, y: y - half))
-            bottomPoints.append(CGPoint(x: x, y: y + half))
-        }
-
-        var path = Path()
-        path.move(to: topPoints[0])
-        for point in topPoints.dropFirst() {
-            path.addLine(to: point)
-        }
-        for point in bottomPoints.reversed().dropFirst() {
-            path.addLine(to: point)
-        }
-
-        let headHalfWeight = halfWeight(0)
-        let headBulgeX = xAt(0) + (flip ? 1 : -1) * headHalfWeight * 1.5
-        path.addQuadCurve(
-            to: topPoints[0],
-            control: CGPoint(x: headBulgeX, y: centerY(0))
-        )
-        path.closeSubpath()
-        return path
-    }
-}
-
-/// A single tapered horizontal brush dash, thick at the left and trailing to a point.
-private struct InkDash: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.midY - rect.height * 0.05))
-        path.addCurve(
-            to: CGPoint(x: rect.maxX, y: rect.midY - rect.height * 0.30),
-            control1: CGPoint(x: rect.minX + rect.width * 0.30, y: rect.minY),
-            control2: CGPoint(x: rect.minX + rect.width * 0.72, y: rect.minY + rect.height * 0.16)
-        )
-        path.addCurve(
-            to: CGPoint(x: rect.minX, y: rect.midY + rect.height * 0.22),
-            control1: CGPoint(x: rect.minX + rect.width * 0.70, y: rect.maxY),
-            control2: CGPoint(x: rect.minX + rect.width * 0.26, y: rect.maxY - rect.height * 0.10)
-        )
-        path.closeSubpath()
-        return path
     }
 }
 
@@ -2679,16 +2557,16 @@ private struct MancalaSurfaceModifier: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        if visualTheme == .calligraphy {
-            calligraphySurface(content)
+        if visualTheme == .flat {
+            flatSurface(content)
         } else {
             glassSurface(content)
         }
     }
 
-    // MARK: Calligraphy
+    // MARK: Flat
 
-    private var inkOpacity: Double {
+    private var lineOpacity: Double {
         switch role {
         case .board: 0
         case .pit: interactive ? 0.92 : 0.35
@@ -2701,20 +2579,10 @@ private struct MancalaSurfaceModifier: ViewModifier {
     private var underlineWeight: CGFloat {
         switch role {
         case .board: 0
-        case .pit: interactive ? 5.5 : 3.2
-        case .store: interactive ? 6.5 : 3.8
-        case .panel: 3.6
-        case .control: 4.6
-        }
-    }
-
-    private var underlineHeight: CGFloat {
-        switch role {
-        case .board: 0
-        case .pit: interactive ? 14 : 11
-        case .store: interactive ? 16 : 13
-        case .panel: 11
-        case .control: 12
+        case .pit: interactive ? 2.5 : 1.25
+        case .store: interactive ? 3 : 1.5
+        case .panel: 1.5
+        case .control: 2
         }
     }
 
@@ -2728,17 +2596,17 @@ private struct MancalaSurfaceModifier: ViewModifier {
         }
     }
 
-    private func calligraphySurface(_ content: Content) -> some View {
+    /// A single flat, uniform-weight rule under each element — no depth, no
+    /// texture, just a plain line.
+    private func flatSurface(_ content: Content) -> some View {
         content
             .background(Color.white)
             .overlay(alignment: isFlipped ? .top : .bottom) {
                 if role != .board {
-                    InkBrushStroke(seed: seed, weight: underlineWeight)
-                        .fill(Color.black.opacity(inkOpacity))
-                        .frame(height: underlineHeight)
+                    Rectangle()
+                        .fill(Color.black.opacity(lineOpacity))
+                        .frame(height: underlineWeight)
                         .padding(.horizontal, underlineInset)
-                        .rotationEffect(.degrees(isFlipped ? 180 : 0))
-                        .offset(y: isFlipped ? 2 : -2)
                         .allowsHitTesting(false)
                 }
             }
@@ -2970,13 +2838,13 @@ private struct MancalaButtonStyleModifier: ViewModifier {
     @Environment(\.mancalaVisualTheme) private var visualTheme
 
     func body(content: Content) -> some View {
-        if visualTheme == .calligraphy {
+        if visualTheme == .flat {
             content
                 .buttonStyle(.plain)
                 .background(.white)
                 .overlay {
-                    InkRing(seed: 11, exponent: 2.0, weightFraction: 0.045)
-                        .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
+                    Circle()
+                        .stroke(Color.black.opacity(0.55), lineWidth: 1.5)
                         .allowsHitTesting(false)
                 }
         } else {
@@ -3038,7 +2906,7 @@ private extension View {
     return ContentView()
 }
 
-#Preview("Calligraphy") {
-    UserDefaults.standard.set(VisualTheme.calligraphy.rawValue, forKey: "visualTheme")
+#Preview("Flat") {
+    UserDefaults.standard.set(VisualTheme.flat.rawValue, forKey: "visualTheme")
     return ContentView()
 }

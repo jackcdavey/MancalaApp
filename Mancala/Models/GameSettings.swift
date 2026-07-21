@@ -2,14 +2,14 @@ import SwiftUI
 
 enum VisualTheme: String, CaseIterable, Identifiable {
     case liquidGlass
-    case calligraphy
+    case flat
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .liquidGlass: "Classic Wood"
-        case .calligraphy: "Calligraphy"
+        case .flat: "Flat"
         }
     }
 }
