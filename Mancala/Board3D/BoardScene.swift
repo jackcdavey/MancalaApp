@@ -90,6 +90,10 @@ struct SowingMotionSystem: System {
 /// camera rig, lights, stones, highlight rings, and the sowing animation.
 /// `Board3DView` forwards SwiftUI state here; game logic stays in
 /// `MancalaGame`/`ContentView` and this class only mirrors it visually.
+/// `@Observable` so views can show a loading indicator while `isBuilt` is
+/// still false — building involves off-main-actor mesh/texture generation
+/// that can take a visible moment, especially on first launch.
+@Observable
 @MainActor
 final class BoardScene {
     var onPitTapped: ((Int) -> Void)?
@@ -145,6 +149,10 @@ final class BoardScene {
     private var slab: ModelEntity?
     private var appliedMaterial: BoardMaterialStyle?
     private var materialCache: [BoardMaterialStyle: PhysicallyBasedMaterial] = [:]
+    /// Count of in-flight uncached material bakes; > 0 while at least one is
+    /// running, so views can show a busy state instead of an unlabeled pause.
+    private var pendingMaterialBakes = 0
+    var isSwitchingMaterial: Bool { pendingMaterialBakes > 0 }
 
     private(set) var isBuilt = false
 
@@ -364,6 +372,7 @@ final class BoardScene {
             updateCamera()
             applyMaterial(.walnut)
         }
+        prewarmRemainingMaterials()
         return root
     }
 
@@ -411,40 +420,79 @@ final class BoardScene {
         }
     }
 
-    /// Swap the slab's finish. The base-color bake runs off the main actor;
-    /// results are cached so switching back to a style is instant. Rapid
-    /// switching is safe — a late bake only applies if its style is still
-    /// selected.
+    /// Bakes the base-color image, the `TextureResource` built from it, and
+    /// the assembled material for one finish.
+    ///
+    /// Only the base-color image bake (pure CoreGraphics/Swift) is safe to run
+    /// off the main actor. `TextureResource(image:options:)` and every
+    /// `PhysicallyBasedMaterial` property setter below call into RealityKit's
+    /// asset manager, which asserts (and crashes with `SIGTRAP` if violated)
+    /// that it's running on the main actor's queue — confirmed by a crash log
+    /// with `dispatch_assert_queue_fail` inside `PhysicallyBasedMaterial
+    /// .roughness.setter` when this was previously moved into a detached
+    /// task. This method must stay `@MainActor`-isolated (inherited from
+    /// `BoardScene`) apart from that one detached image bake.
+    private func bakedMaterial(for style: BoardMaterialStyle) async -> PhysicallyBasedMaterial {
+        let spec = Self.finishSpec(for: style)
+        let image = await Task.detached(priority: .userInitiated) {
+            BoardTextureBuilder.baseColor(for: style)
+        }.value
+
+        var material = PhysicallyBasedMaterial()
+        if let image, let texture = try? await TextureResource(image: image, options: .init(semantic: .color)) {
+            material.baseColor = .init(texture: .init(texture))
+        } else {
+            material.baseColor = .init(tint: spec.fallback)
+        }
+        material.roughness = .init(floatLiteral: spec.roughness)
+        material.metallic = .init(floatLiteral: spec.metallic)
+        material.clearcoat = .init(floatLiteral: spec.clearcoat)
+        material.clearcoatRoughness = .init(floatLiteral: spec.clearcoatRoughness)
+        if let opacity = spec.opacity {
+            material.blending = .transparent(opacity: .init(floatLiteral: opacity))
+        }
+        return material
+    }
+
+    /// Swap the slab's finish; results are cached so switching back to a
+    /// style already baked (including by `prewarmRemainingMaterials`) is
+    /// instant. Rapid switching is safe — a late bake only applies if its
+    /// style is still selected. `isSwitchingMaterial` goes true for the
+    /// duration of an uncached bake so the UI can show it's working rather
+    /// than sitting on an unlabeled pause.
     private func applyMaterial(_ style: BoardMaterialStyle) {
         appliedMaterial = style
         if let cached = materialCache[style] {
             slab?.model?.materials = [cached]
             return
         }
-        let spec = Self.finishSpec(for: style)
+        pendingMaterialBakes += 1
         Task { [weak self] in
-            let image = await Task.detached(priority: .userInitiated) {
-                BoardTextureBuilder.baseColor(for: style)
-            }.value
             guard let self else { return }
-
-            var material = PhysicallyBasedMaterial()
-            if let image, let texture = try? await TextureResource(image: image, options: .init(semantic: .color)) {
-                material.baseColor = .init(texture: .init(texture))
-            } else {
-                material.baseColor = .init(tint: spec.fallback)
-            }
-            material.roughness = .init(floatLiteral: spec.roughness)
-            material.metallic = .init(floatLiteral: spec.metallic)
-            material.clearcoat = .init(floatLiteral: spec.clearcoat)
-            material.clearcoatRoughness = .init(floatLiteral: spec.clearcoatRoughness)
-            if let opacity = spec.opacity {
-                material.blending = .transparent(opacity: .init(floatLiteral: opacity))
-            }
-
+            let material = await self.bakedMaterial(for: style)
+            self.pendingMaterialBakes -= 1
             self.materialCache[style] = material
             if self.appliedMaterial == style {
                 self.slab?.model?.materials = [material]
+            }
+        }
+    }
+
+    /// Bakes every not-yet-cached finish shortly after the board is built,
+    /// paced with a short yield between each so an already-open game stays
+    /// responsive while it happens in the background. Without this, the
+    /// first time a player picks an unfamiliar material in Settings incurs
+    /// the same bake `applyMaterial` would otherwise do inline right then —
+    /// which is the freeze this sidesteps by doing the work earlier and
+    /// piecemeal instead.
+    private func prewarmRemainingMaterials() {
+        Task { [weak self] in
+            for style in BoardMaterialStyle.allCases {
+                guard let self else { return }
+                guard self.materialCache[style] == nil else { continue }
+                let material = await self.bakedMaterial(for: style)
+                self.materialCache[style] = material
+                try? await Task.sleep(for: .milliseconds(60))
             }
         }
     }

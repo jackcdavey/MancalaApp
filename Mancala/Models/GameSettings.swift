@@ -8,7 +8,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .liquidGlass: "Classic Wood"
+        case .liquidGlass: "Immersive"
         case .flat: "Flat"
         }
     }

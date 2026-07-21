@@ -645,19 +645,30 @@ struct ContentView: View {
     /// the room; the window keeps score, status, and controls.
     private func spatialBoardPlaceholder(boardHeight: CGFloat) -> some View {
         VStack(spacing: 14) {
-            Image(systemName: "cube.transparent")
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(.secondary)
+            if spatialBoard.scene.isBuilt {
+                Image(systemName: "cube.transparent")
+                    .font(.system(size: 44, weight: .light))
+                    .foregroundStyle(.secondary)
 
-            Text("The board is placed in your space")
-                .font(.headline)
-                .foregroundStyle(primaryText)
+                Text("The board is placed in your space")
+                    .font(.headline)
+                    .foregroundStyle(primaryText)
 
-            Text("Touch a pit — or look at it and pinch — to sow. Use the handle below the board to move it or snap it onto a surface.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 380)
+                Text("Touch a pit — or look at it and pinch — to sow. Use the handle below the board to move it or snap it onto a surface.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 380)
+            } else {
+                // Mesh/texture generation can take a visible moment, especially
+                // on first launch — say so instead of leaving an empty room.
+                ProgressView()
+                    .controlSize(.large)
+
+                Text("Preparing board…")
+                    .font(.headline)
+                    .foregroundStyle(primaryText)
+            }
 
             Button {
                 setSpatialBoard(open: false)
@@ -666,6 +677,7 @@ struct ContentView: View {
             }
             .buttonStyle(.bordered)
         }
+        .animation(.easeInOut(duration: 0.28), value: spatialBoard.scene.isBuilt)
         .frame(maxWidth: .infinity)
         .frame(height: boardHeight)
     }
@@ -726,6 +738,15 @@ struct ContentView: View {
         )
         .frame(height: isPortrait ? boardHeight : nil)
         .frame(maxHeight: isPortrait ? nil : .infinity)
+        .overlay {
+            if !boardScene.isBuilt {
+                boardLoadingOverlay
+            } else if boardScene.isSwitchingMaterial {
+                materialSwitchOverlay
+            }
+        }
+        .animation(.easeInOut(duration: 0.28), value: boardScene.isBuilt)
+        .animation(.easeInOut(duration: 0.2), value: boardScene.isSwitchingMaterial)
         .onAppear {
             boardScene.onPitTapped = { index in
                 Task { await animateMove(from: index) }
@@ -745,6 +766,46 @@ struct ContentView: View {
                 boardScene.setParallax(yaw: 0, pitch: 0)
             }
         }
+    }
+
+    /// Shown over the board area while `BoardScene` is still building its
+    /// entity graph — mesh generation, texture baking, and (on first launch
+    /// in particular) the RealityKit engine's own render-graph warm-up can
+    /// take long enough that an unlabeled blank board reads as a freeze.
+    private var boardLoadingOverlay: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.large)
+
+            Text("Preparing 3D board…")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(primaryText)
+        }
+        .padding(24)
+        .frame(minWidth: 220)
+        .mancalaGlassEffect(tint: storeTint, cornerRadius: 20, role: .panel)
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Preparing 3D board")
+    }
+
+    /// Safety net for the rare case a material is selected before
+    /// `BoardScene.prewarmRemainingMaterials()` has cached it — normally every
+    /// finish is baked shortly after launch, so switching in Settings is an
+    /// instant cache hit and this never appears.
+    private var materialSwitchOverlay: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+
+            Text("Applying material…")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(primaryText)
+        }
+        .padding(16)
+        .mancalaGlassEffect(tint: storeTint, cornerRadius: 16, role: .panel)
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Applying material")
     }
 
     private func startMotionParallax() {
@@ -993,7 +1054,7 @@ struct ContentView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    Text(visualTheme == .flat ? "Plain black and white, ultra minimal with no depth or texture." : "A frosted glass board with depth, viewed at a slight angle.")
+                    Text(visualTheme == .flat ? "Plain black and white, ultra minimal with no depth or texture." : "A 3D board with several textures to choose from.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
