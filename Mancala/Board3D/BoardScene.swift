@@ -24,15 +24,13 @@ struct SowingMotionComponent: Component {
     var velocity: SIMD3<Float> = .zero
     /// Spring constant of the follower; higher tracks the target tighter.
     var stiffness: Float
-    /// Velocity decay rate; below critical (2·√stiffness) leaves a hint of
-    /// overshoot that reads as weight.
+    /// Velocity decay rate; near critical (2·√stiffness) so the follower lags
+    /// with momentum but never visibly oscillates — jiggle reads as soft.
     var damping: Float
-    /// Slow continuous tumble, so rotation drifts instead of jumping per hop.
-    var spinAxis: SIMD3<Float>
-    var spinSpeed: Float
 }
 
-/// Integrates every `SowingMotionComponent` each frame.
+/// Integrates every `SowingMotionComponent` each frame, then runs a
+/// lightweight rigid-contact pass so the traveling stones never interpenetrate.
 struct SowingMotionSystem: System {
     private static let query = EntityQuery(where: .has(SowingMotionComponent.self))
 
@@ -42,13 +40,47 @@ struct SowingMotionSystem: System {
         // Clamp dt so a frame hitch can't fling the spring past its target.
         let dt = Float(min(context.deltaTime, 1.0 / 30.0))
         guard dt > 0 else { return }
+        var moving: [Entity] = []
         for entity in context.entities(matching: Self.query, updatingSystemWhen: .rendering) {
             guard var motion = entity.components[SowingMotionComponent.self] else { continue }
             motion.velocity += (motion.target - entity.position) * motion.stiffness * dt
             motion.velocity *= exp(-motion.damping * dt)
             entity.position += motion.velocity * dt
-            entity.orientation = simd_quatf(angle: motion.spinSpeed * dt, axis: motion.spinAxis) * entity.orientation
             entity.components.set(motion)
+            moving.append(entity)
+        }
+
+        // Sphere-sphere separation: project overlapping pairs apart and kill
+        // their approaching velocity, so contacts hold rigidly instead of
+        // springing through each other. O(n²) over the ≤ two dozen flyers.
+        guard moving.count > 1 else { return }
+        let minDistance = BoardLayout3D.stoneRadius * 2
+        for i in 0..<(moving.count - 1) {
+            for j in (i + 1)..<moving.count {
+                let a = moving[i]
+                let b = moving[j]
+                var delta = b.position - a.position
+                var distance = simd_length(delta)
+                if distance < 1e-5 {
+                    delta = SIMD3(minDistance * 0.01, 0, 0)
+                    distance = minDistance * 0.01
+                }
+                guard distance < minDistance else { continue }
+                let normal = delta / distance
+                let push = (minDistance - distance) / 2
+                a.position -= normal * push
+                b.position += normal * push
+                guard var motionA = a.components[SowingMotionComponent.self],
+                      var motionB = b.components[SowingMotionComponent.self] else { continue }
+                let approaching = simd_dot(motionB.velocity - motionA.velocity, normal)
+                if approaching < 0 {
+                    let correction = normal * (approaching / 2)
+                    motionA.velocity += correction
+                    motionB.velocity -= correction
+                    a.components.set(motionA)
+                    b.components.set(motionB)
+                }
+            }
         }
     }
 }
@@ -83,6 +115,10 @@ final class BoardScene {
     /// Colors most recently trimmed from a pit by `applyStones`, kept so an
     /// animation that starts after the model sync can still recover them.
     private var lastRemovedColors: [[Int]] = Array(repeating: [], count: 14)
+    /// Flyers that finished their drop and now rest on the slot their resting
+    /// stone will occupy; `applyStones` swaps each for the real resting stone
+    /// in place, so the handoff is invisible.
+    private var landedFlyers: [[ModelEntity]] = Array(repeating: [], count: 14)
     /// Rotating fallback so stones created without an animation event (initial
     /// board, reset, undo) still get varied colors.
     private var fallbackColorCursor = 0
@@ -526,6 +562,10 @@ final class BoardScene {
                 lastRemovedColors[index] = Array(stoneColors[index][logical...])
                 stoneColors[index].removeSubrange(logical...)
                 pendingDropColors[index] = []
+                for flyer in landedFlyers[index] {
+                    flyer.removeFromParent()
+                }
+                landedFlyers[index] = []
             }
             while stoneColors[index].count < logical {
                 let color = pendingDropColors[index].isEmpty
@@ -540,16 +580,21 @@ final class BoardScene {
                 current.removeLast().removeFromParent()
             }
             while current.count < target {
+                // A flyer that already landed on this slot is swapped for the
+                // resting stone in place — no grow-in, or the stone would
+                // visibly pop after having just physically settled.
+                let landedFlyer = landedFlyers[index].isEmpty ? nil : landedFlyers[index].removeFirst()
+                landedFlyer?.removeFromParent()
                 let stone = StoneFactory.makeRestingStone(
                     pitIndex: index,
                     slot: current.count,
                     colorIndex: stoneColors[index][current.count]
                 )
-                if root.scene == nil {
-                    // Populated before the root joins a RealityView (e.g. the
-                    // initial sync): animations can't run outside a scene, so
-                    // the grow-in would freeze at its tiny start scale. Place
-                    // the stone at rest, full size.
+                if landedFlyer != nil || root.scene == nil {
+                    // Also placed at rest when populated before the root joins
+                    // a RealityView (e.g. the initial sync): animations can't
+                    // run outside a scene, so the grow-in would freeze at its
+                    // tiny start scale.
                     boardRoot.addChild(stone)
                 } else {
                     let restTransform = Transform(translation: stone.position)
@@ -745,7 +790,7 @@ final class BoardScene {
 
     private var springDamping: Float {
         let speed = Float(min(max(animationSpeed, 0.25), 4))
-        return 28 * speed
+        return 33 * speed
     }
 
     /// The stones currently traveling as the picked-up pile; index 0 is the
@@ -761,10 +806,10 @@ final class BoardScene {
     private static func clusterOffset(_ index: Int) -> SIMD3<Float> {
         let layer = index / 7
         let slot = index % 7
-        let y = Float(layer) * BoardLayout3D.stoneRadius * 1.7
+        let y = Float(layer) * BoardLayout3D.stoneRadius * 1.85
         guard slot > 0 else { return SIMD3(0, y, 0) }
         let angle = Float(slot - 1) * (.pi / 3) + Float(layer) * 0.45
-        let radius = BoardLayout3D.stoneRadius * 1.95
+        let radius = BoardLayout3D.stoneRadius * 2.15
         return SIMD3(cos(angle) * radius, y, sin(angle) * radius)
     }
 
@@ -793,18 +838,10 @@ final class BoardScene {
         for slot in 0..<count {
             let stone = StoneFactory.makeFlyingStone(colorIndex: sowingClusterColors[slot])
             stone.position = BoardLayout3D.stoneSlot(pitIndex: from, slot: slot).position
-            var axis = SIMD3(
-                Float.random(in: -1...1),
-                Float.random(in: -1...1),
-                Float.random(in: -1...1)
-            )
-            axis = simd_length(axis) > 0.01 ? simd_normalize(axis) : SIMD3(0, 1, 0)
             stone.components.set(SowingMotionComponent(
                 target: stone.position,
                 stiffness: springStiffness,
-                damping: springDamping,
-                spinAxis: axis,
-                spinSpeed: Float.random(in: 1.0...2.2) * (Bool.random() ? 1 : -1)
+                damping: springDamping
             ))
             boardRoot.addChild(stone)
             sowingCluster.append(stone)
@@ -835,16 +872,75 @@ final class BoardScene {
         // Hand the stone back to a plain animation for the drop so the spring
         // follower stops steering it mid-fall.
         stone.components.remove(SowingMotionComponent.self)
-        let well = BoardLayout3D.wells[wellIndex]
-        let target = Transform(
-            scale: stone.transform.scale,
-            rotation: stone.transform.rotation,
-            translation: SIMD3(well.center.x, 0.012, well.center.y)
+        await landStone(stone, into: wellIndex)
+    }
+
+    /// Drop a flyer into `wellIndex` with a gravity fall, a tumble, and one
+    /// damped bounce, landing exactly on the slot its resting stone will
+    /// occupy. The flyer then waits in `landedFlyers` until `applyStones`
+    /// swaps it for the real resting stone in place.
+    private func landStone(_ stone: ModelEntity, into wellIndex: Int) async {
+        // The slot this stone will occupy once the model deposits it: current
+        // logical count plus every drop already queued (its own color was
+        // queued just before this call, hence the -1).
+        let futureSlot = stoneColors[wellIndex].count + pendingDropColors[wellIndex].count - 1
+        guard futureSlot >= 0, futureSlot < BoardLayout3D.visibleStoneCap else {
+            // Pile is at its visible cap: fall into its top and vanish; only
+            // the count label changes.
+            let well = BoardLayout3D.wells[wellIndex]
+            let target = Transform(
+                scale: stone.transform.scale,
+                rotation: stone.transform.rotation,
+                translation: SIMD3(well.center.x, 0.012, well.center.y)
+            )
+            let duration = scaled(0.09)
+            stone.move(to: target, relativeTo: boardRoot, duration: duration, timingFunction: .easeIn)
+            try? await Task.sleep(for: .seconds(duration))
+            stone.removeFromParent()
+            return
+        }
+
+        let slot = BoardLayout3D.stoneSlot(pitIndex: wellIndex, slot: futureSlot)
+
+        // The stone stays a rigid sphere through the fall and bounce — no
+        // rotation or scale change mid-flight, which would morph its
+        // silhouette and read as soft.
+        let flightScale = stone.transform.scale
+        let flightRotation = stone.transform.rotation
+        let fall = scaled(0.09)
+        stone.move(
+            to: Transform(scale: flightScale, rotation: flightRotation, translation: slot.position),
+            relativeTo: boardRoot,
+            duration: fall,
+            timingFunction: .easeIn
         )
-        let duration = scaled(0.09)
-        stone.move(to: target, relativeTo: boardRoot, duration: duration, timingFunction: .easeIn)
-        try? await Task.sleep(for: .seconds(duration))
-        stone.removeFromParent()
+        try? await Task.sleep(for: .seconds(fall))
+
+        // One small damped bounce off the bowl, drifting a touch sideways.
+        let bounceHeight = BoardLayout3D.stoneRadius * Float.random(in: 0.45...0.7)
+        let drift = BoardLayout3D.stoneRadius * 0.18
+        let apex = slot.position
+            + slot.surfaceNormal * bounceHeight
+            + SIMD3(Float.random(in: -drift...drift), 0, Float.random(in: -drift...drift))
+        let rise = scaled(0.06)
+        stone.move(
+            to: Transform(scale: flightScale, rotation: flightRotation, translation: apex),
+            relativeTo: boardRoot,
+            duration: rise,
+            timingFunction: .easeOut
+        )
+        try? await Task.sleep(for: .seconds(rise))
+        // The settle nestles the sphere into its resting pebble shape — the
+        // one moment squash is applied, so it reads as coming to rest.
+        let settle = scaled(0.07)
+        stone.move(
+            to: Transform(scale: slot.scale, rotation: slot.orientation, translation: slot.position),
+            relativeTo: boardRoot,
+            duration: settle,
+            timingFunction: .easeIn
+        )
+        try? await Task.sleep(for: .seconds(settle))
+        landedFlyers[wellIndex].append(stone)
     }
 
     /// Retarget the spring follower on every cluster stone. Per-hop wobble
@@ -853,7 +949,9 @@ final class BoardScene {
     /// the formation spacing so stones never visibly interpenetrate.
     private func moveCluster(over well: BoardLayout3D.Well) {
         let center = SIMD3(well.center.x, clusterHoverHeight, well.center.y)
-        let jitter = BoardLayout3D.stoneRadius * 0.3
+        // Small enough that wobbled targets stay outside contact range; the
+        // separation pass in `SowingMotionSystem` catches transients.
+        let jitter = BoardLayout3D.stoneRadius * 0.12
         for (index, stone) in sowingCluster.enumerated() {
             guard var motion = stone.components[SowingMotionComponent.self] else { continue }
             let wobble = SIMD3(
@@ -909,13 +1007,6 @@ final class BoardScene {
             timingFunction: .easeOut
         )
         try? await Task.sleep(for: .seconds(phaseDuration))
-        stone.move(
-            to: Transform(scale: scale, rotation: rotation, translation: end),
-            relativeTo: boardRoot,
-            duration: phaseDuration,
-            timingFunction: .easeIn
-        )
-        try? await Task.sleep(for: .seconds(phaseDuration))
-        stone.removeFromParent()
+        await landStone(stone, into: to)
     }
 }

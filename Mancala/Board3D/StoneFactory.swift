@@ -98,11 +98,13 @@ enum StoneFactory {
     }
 
     /// The transient stone that arcs between wells during sowing/capture.
+    /// Uniformly scaled on purpose: a rotating non-uniform ellipsoid changes
+    /// silhouette every frame and reads as soft, while a sphere stays rigid
+    /// under any rotation. The landing settle morphs it into its resting
+    /// squash at the end.
     static func makeFlyingStone(colorIndex: Int) -> ModelEntity {
         prepare()
         guard let sphereMesh else { return ModelEntity() }
-        let model = ModelEntity(mesh: sphereMesh, materials: [material(forColorIndex: colorIndex)])
-        model.scale = SIMD3(1.05, 0.8, 1.05)
-        return model
+        return ModelEntity(mesh: sphereMesh, materials: [material(forColorIndex: colorIndex)])
     }
 }
