@@ -178,9 +178,9 @@ struct ContentView: View {
         }
 
         return [
-            Color(red: 0.97, green: 0.97, blue: 0.98),
-            Color(red: 0.91, green: 0.91, blue: 0.93),
-            Color(red: 0.85, green: 0.86, blue: 0.88)
+            Color(red: 0.958, green: 0.945, blue: 0.915),
+            Color(red: 0.942, green: 0.926, blue: 0.891),
+            Color(red: 0.918, green: 0.898, blue: 0.860)
         ]
     }
 
@@ -190,9 +190,9 @@ struct ContentView: View {
         }
 
         return [
-            Color(red: 0.05, green: 0.05, blue: 0.06),
-            Color(red: 0.09, green: 0.09, blue: 0.11),
-            Color(red: 0.13, green: 0.13, blue: 0.16)
+            Color(red: 0.10, green: 0.09, blue: 0.08),
+            Color(red: 0.13, green: 0.12, blue: 0.105),
+            Color(red: 0.16, green: 0.15, blue: 0.13)
         ]
     }
 
@@ -200,7 +200,7 @@ struct ContentView: View {
         if visualTheme == .flat {
             return .black
         }
-        return isDarkMode ? .white : Color(red: 0.08, green: 0.10, blue: 0.12)
+        return isDarkMode ? Color(red: 0.93, green: 0.91, blue: 0.87) : Color(red: 0.26, green: 0.24, blue: 0.21)
     }
 
     private var secondaryText: Color {
@@ -243,7 +243,7 @@ struct ContentView: View {
     }
 
     private func displayFont(size: CGFloat, weight: Font.Weight) -> Font {
-        .system(size: size, weight: weight, design: visualTheme == .flat ? .default : .rounded)
+        .system(size: size, weight: weight, design: visualTheme == .flat ? .default : .serif)
     }
 
     private func countFont(size: CGFloat, weight: Font.Weight = .semibold) -> Font {
@@ -558,8 +558,10 @@ struct ContentView: View {
         let headerHeight: CGFloat = isPortrait ? 76 : (shouldShowStatusPanel && isThoughtPanelExpanded ? 172 : 64)
         let statusHeight: CGFloat = isPortrait && shouldShowStatusPanel ? (isThoughtPanelExpanded ? 172 : 46) : 0
         let visibleStatusSpacing = isPortrait && shouldShowStatusPanel ? contentSpacing : 0
+        let scoreRowHeight: CGFloat = isPortrait ? 70 : 0
+        let scoreRowSpacing = isPortrait ? contentSpacing : 0
         let slabClearance: CGFloat = visualTheme == .liquidGlass && !is3DBoardActive ? 42 : 0
-        let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing - slabClearance)
+        let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing - scoreRowHeight - scoreRowSpacing - slabClearance)
         let portraitStoreHeight = min(54, max(38, boardHeight * 0.10))
         let portraitPitHeight = max(34, (boardHeight - 24 - 20 - (portraitStoreHeight * 2) - 40) / 6)
 
@@ -596,6 +598,11 @@ struct ContentView: View {
                 }
             }
             #endif
+
+            if isPortrait {
+                scoreRow
+                    .frame(height: scoreRowHeight)
+            }
 
             if isPortrait && shouldShowStatusPanel {
                 statusPanel
@@ -885,161 +892,174 @@ struct ContentView: View {
 
     private var difficultyPill: some View {
         let title: String
-        let tint: Color
         let accessibilityLabel: String
 
         switch gameMode {
         case .singlePlayer:
             title = difficulty.title
-            tint = difficulty.tint
             accessibilityLabel = "Difficulty: \(difficulty.title)"
         case .zeroPlayer:
             title = "\(zeroPlayerOneDifficulty.title) vs \(zeroPlayerTwoDifficulty.title)"
-            tint = currentAIDifficulty.tint
             accessibilityLabel = "Zero player mode. Player 1 \(zeroPlayerOneDifficulty.title), Player 2 \(zeroPlayerTwoDifficulty.title)"
         case .twoPlayer:
             title = "2 Players"
-            tint = Color.secondary
             accessibilityLabel = "Two player mode"
         case .onlineMultiplayer:
             title = "Online"
-            tint = Color.indigo
             accessibilityLabel = "Online multiplayer mode"
         }
 
-        return Text(title)
-            .font(.caption.weight(.bold))
+        return Group {
+            if visualTheme == .flat {
+                Text(title)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(primaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background {
+                        Capsule(style: .continuous)
+                            .fill(Color.white)
+                    }
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .stroke(Color.black.opacity(0.65), lineWidth: 1)
+                    }
+            } else {
+                // The design keeps chrome quiet: the mode reads as a small
+                // letterspaced caption under the title, not a bordered pill.
+                Text(title.uppercased())
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(2.4)
+                    .foregroundStyle(secondaryText.opacity(0.9))
+            }
+        }
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private func headerIcon(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 19, weight: .medium))
             .foregroundStyle(primaryText)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(visualTheme == .flat ? Color.white : tint.opacity(isDarkMode ? 0.24 : 0.18))
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .playerFacingRotation(tableRotationDegrees)
+    }
+
+    private func headerTitle(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 3) {
+            Text("Mancala")
+                .font(displayFont(size: 32, weight: visualTheme == .flat ? .semibold : .medium))
+                .foregroundStyle(primaryText)
+
+            if visualTheme == .flat {
+                Rectangle()
+                    .fill(Color.black.opacity(0.82))
+                    .frame(width: 92, height: 3)
+                    .padding(.bottom, 1)
+                    .accessibilityHidden(true)
             }
-            .overlay {
-                Capsule(style: .continuous)
-                    .stroke(
-                        visualTheme == .flat ? Color.black.opacity(0.65) : tint.opacity(isDarkMode ? 0.72 : 0.58),
-                        lineWidth: 1
-                    )
-            }
-            .accessibilityLabel(accessibilityLabel)
+
+            difficultyPill
+        }
+        .playerFacingRotation(tableRotationDegrees)
     }
 
     private func header(isPortrait: Bool) -> some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Mancala")
-                    .font(displayFont(size: 34, weight: .semibold))
-                    .foregroundStyle(primaryText)
+        ZStack {
+            // Portrait centers the title in the safe area like the design;
+            // landscape keeps it leading so the status panel can sit centered.
+            if isPortrait {
+                headerTitle(alignment: .center)
+            }
 
-                if visualTheme == .flat {
-                    Rectangle()
-                        .fill(Color.black.opacity(0.82))
-                        .frame(width: 92, height: 3)
-                        .padding(.bottom, 1)
-                        .accessibilityHidden(true)
+            HStack(alignment: .center, spacing: 2) {
+                if !isPortrait {
+                    headerTitle(alignment: .leading)
                 }
 
-                difficultyPill
-            }
-            .playerFacingRotation(tableRotationDegrees)
+                if shouldShowUndoButton {
+                    Button {
+                        undoLastTurn()
+                    } label: {
+                        headerIcon("arrow.uturn.backward")
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(canUndoTurn ? 1 : 0.35)
+                    .disabled(!canUndoTurn)
+                    .accessibilityLabel("Undo last turn")
+                }
 
-            Spacer()
-
-            if !isPortrait && shouldShowStatusPanel {
-                statusPanel
-                    .frame(maxWidth: isThoughtPanelExpanded ? 360 : 260)
+                if gameMode == .zeroPlayer {
+                    Button {
+                        toggleZeroPlayerPlayback()
+                    } label: {
+                        headerIcon(isZeroPlayerPaused ? "play.fill" : "pause.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(isAnimatingMove || game.isGameOver ? 0.35 : 1)
+                    .disabled(isAnimatingMove || game.isGameOver)
+                    .accessibilityLabel(isZeroPlayerPaused ? "Play zero player game" : "Pause zero player game")
+                }
 
                 Spacer()
+
+                if !isPortrait && shouldShowStatusPanel {
+                    statusPanel
+                        .frame(maxWidth: isThoughtPanelExpanded ? 360 : 260)
+
+                    Spacer()
+                }
+
+                #if os(visionOS)
+                if visualTheme == .liquidGlass {
+                    Button {
+                        setSpatialBoard(open: !spatialBoard.isOpen)
+                    } label: {
+                        headerIcon(spatialBoard.isOpen ? "arrow.down.forward.and.arrow.up.backward" : "cube")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(spatialBoard.isOpen ? "Return board to window" : "Place board in your space")
+                }
+                #endif
+
+                Menu {
+                    Button {
+                        isRulesPresented = true
+                    } label: {
+                        Label("Rules", systemImage: "book.closed")
+                    }
+
+                    Button {
+                        requestHint()
+                    } label: {
+                        Label(isHintSearching ? "Finding Hint" : "Hint", systemImage: "lightbulb")
+                    }
+                    .disabled(!canRequestHint)
+
+                    Button {
+                        isGameHistoryPresented = true
+                    } label: {
+                        Label("Game History", systemImage: "clock.arrow.circlepath")
+                    }
+
+                    Button {
+                        isSettingsPresented = true
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+
+                    Button(role: .destructive) {
+                        resetCurrentGame()
+                    } label: {
+                        Label("Reset Game", systemImage: "arrow.counterclockwise")
+                    }
+                    .disabled(isAnimatingMove || gameMode == .onlineMultiplayer)
+                } label: {
+                    headerIcon("gearshape")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("More options")
             }
-
-            if shouldShowUndoButton {
-                Button {
-                    undoLastTurn()
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(primaryText)
-                        .frame(width: 44, height: 44)
-                        .playerFacingRotation(tableRotationDegrees)
-                }
-                .mancalaGlassButtonStyle()
-                .disabled(!canUndoTurn)
-                .accessibilityLabel("Undo last turn")
-            }
-
-            if gameMode == .zeroPlayer {
-                Button {
-                    toggleZeroPlayerPlayback()
-                } label: {
-                    Image(systemName: isZeroPlayerPaused ? "play.fill" : "pause.fill")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(primaryText)
-                        .frame(width: 44, height: 44)
-                        .playerFacingRotation(tableRotationDegrees)
-                }
-                .mancalaGlassButtonStyle()
-                .disabled(isAnimatingMove || game.isGameOver)
-                .accessibilityLabel(isZeroPlayerPaused ? "Play zero player game" : "Pause zero player game")
-            }
-
-            #if os(visionOS)
-            if visualTheme == .liquidGlass {
-                Button {
-                    setSpatialBoard(open: !spatialBoard.isOpen)
-                } label: {
-                    Image(systemName: spatialBoard.isOpen ? "arrow.down.forward.and.arrow.up.backward" : "cube")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(primaryText)
-                        .frame(width: 44, height: 44)
-                }
-                .mancalaGlassButtonStyle()
-                .accessibilityLabel(spatialBoard.isOpen ? "Return board to window" : "Place board in your space")
-            }
-            #endif
-
-            Menu {
-                Button {
-                    isRulesPresented = true
-                } label: {
-                    Label("Rules", systemImage: "book.closed")
-                }
-
-                Button {
-                    requestHint()
-                } label: {
-                    Label(isHintSearching ? "Finding Hint" : "Hint", systemImage: "lightbulb")
-                }
-                .disabled(!canRequestHint)
-
-                Button {
-                    isGameHistoryPresented = true
-                } label: {
-                    Label("Game History", systemImage: "clock.arrow.circlepath")
-                }
-
-                Button {
-                    isSettingsPresented = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-
-                Button(role: .destructive) {
-                    resetCurrentGame()
-                } label: {
-                    Label("Reset Game", systemImage: "arrow.counterclockwise")
-                }
-                .disabled(isAnimatingMove || gameMode == .onlineMultiplayer)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(primaryText)
-                    .frame(width: 44, height: 44)
-                    .playerFacingRotation(tableRotationDegrees)
-            }
-            .mancalaGlassButtonStyle()
-            .accessibilityLabel("More options")
         }
     }
 
@@ -1526,6 +1546,76 @@ struct ContentView: View {
         .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, role: .board, interactive: true, seed: 41)
     }
 
+    /// The design's score strip: each player's marker dot with their store
+    /// count beneath it, and the turn text centered between them. When the
+    /// status panel is visible directly below, it already carries the turn
+    /// text, so the center stays empty rather than repeating it.
+    private var scoreRow: some View {
+        HStack(alignment: .top) {
+            scoreMarker(for: .playerOne)
+
+            Spacer()
+
+            if !shouldShowStatusPanel {
+                Text(statusText)
+                    .font(displayFont(size: 22, weight: visualTheme == .flat ? .semibold : .regular))
+                    .foregroundStyle(primaryText)
+                    .contentTransition(.numericText())
+                    .multilineTextAlignment(.center)
+                    .frame(height: 30)
+            }
+
+            Spacer()
+
+            scoreMarker(for: .playerTwo)
+        }
+        .padding(.horizontal, 34)
+        .playerFacingRotation(tableRotationDegrees)
+    }
+
+    private func scoreMarker(for player: Player) -> some View {
+        let isCurrent = player == game.currentPlayer && !game.isGameOver
+
+        return VStack(spacing: 9) {
+            Circle()
+                .fill(scoreMarkerColor(for: player))
+                .frame(width: 26, height: 26)
+                .overlay {
+                    Circle()
+                        .strokeBorder(scoreMarkerStroke(for: player), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(isDarkMode ? 0.30 : 0.10), radius: 3, x: 0, y: 2)
+                .scaleEffect(isCurrent ? 1.0 : 0.82)
+
+            Text("\(game.storeCount(for: player))")
+                .font(countFont(size: 24, weight: .regular))
+                .foregroundStyle(primaryText)
+                .contentTransition(.numericText())
+        }
+        .animation(.easeInOut(duration: 0.22), value: isCurrent)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(displayName(for: player)): \(game.storeCount(for: player)) stones")
+    }
+
+    private func scoreMarkerColor(for player: Player) -> Color {
+        if visualTheme == .flat {
+            return player == .playerOne ? .white : .black
+        }
+        return player == .playerOne
+            ? Color(red: 0.93, green: 0.90, blue: 0.84)
+            : Color(red: 0.30, green: 0.29, blue: 0.27)
+    }
+
+    private func scoreMarkerStroke(for player: Player) -> Color {
+        if visualTheme == .flat {
+            return .black.opacity(player == .playerOne ? 0.8 : 0)
+        }
+        if player == .playerOne {
+            return .black.opacity(isDarkMode ? 0 : 0.12)
+        }
+        return .white.opacity(isDarkMode ? 0.28 : 0)
+    }
+
     private var statusPanel: some View {
         Button {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
@@ -1535,7 +1625,7 @@ struct ContentView: View {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     Text(statusText)
-                        .font(.headline.weight(.semibold))
+                        .font(displayFont(size: 17, weight: .semibold))
                         .contentTransition(.numericText())
 
                     if isAIMovePending {
