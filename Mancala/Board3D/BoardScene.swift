@@ -108,47 +108,55 @@ final class BoardScene {
     private let iblEntity = Entity()
     private let keyLight = Entity()
 
-    private var stones: [[Entity]] = Array(repeating: [], count: 14)
+    // All of the private bookkeeping below is @ObservationIgnored: `sync`
+    // runs inside RealityView's `update:` closure, so any tracked property it
+    // reads makes that closure re-run on the property's next mutation.
+    // Observation fires `willSet` *before* the mutation executes, so a tracked
+    // ledger array could be trimmed by a re-entrant `sync` between a guard
+    // (`isEmpty`) and its `removeLast()` in the same statement — an
+    // intermittent empty-collection trap during capture animations. None of
+    // this state is rendered by SwiftUI, so nothing legitimate observes it.
+    @ObservationIgnored private var stones: [[Entity]] = Array(repeating: [], count: 14)
     /// Palette index of every logical stone in every pit (uncapped, unlike the
     /// visible `stones` entities). Colors travel with the sowing/capture
     /// animations so each stone keeps one color for the whole game.
-    private var stoneColors: [[Int]] = Array(repeating: [], count: 14)
+    @ObservationIgnored private var stoneColors: [[Int]] = Array(repeating: [], count: 14)
     /// Colors queued by animated drops into a pit, consumed by `applyStones`
     /// when the model's count for that pit grows.
-    private var pendingDropColors: [[Int]] = Array(repeating: [], count: 14)
+    @ObservationIgnored private var pendingDropColors: [[Int]] = Array(repeating: [], count: 14)
     /// Colors most recently trimmed from a pit by `applyStones`, kept so an
     /// animation that starts after the model sync can still recover them.
-    private var lastRemovedColors: [[Int]] = Array(repeating: [], count: 14)
+    @ObservationIgnored private var lastRemovedColors: [[Int]] = Array(repeating: [], count: 14)
     /// Flyers that finished their drop and now rest on the slot their resting
     /// stone will occupy; `applyStones` swaps each for the real resting stone
     /// in place, so the handoff is invisible.
-    private var landedFlyers: [[ModelEntity]] = Array(repeating: [], count: 14)
+    @ObservationIgnored private var landedFlyers: [[ModelEntity]] = Array(repeating: [], count: 14)
     /// Rotating fallback so stones created without an animation event (initial
     /// board, reset, undo) still get varied colors.
-    private var fallbackColorCursor = 0
+    @ObservationIgnored private var fallbackColorCursor = 0
 
     private func nextFallbackColor() -> Int {
         let color = fallbackColorCursor
         fallbackColorCursor = (fallbackColorCursor + 1) % StoneFactory.palette.count
         return color
     }
-    private var highlightRings: [ModelEntity] = []
-    private var labelAnchors: [Entity] = []
-    private var labelTextEntities: [ModelEntity] = []
-    private var labelTextMaterial = UnlitMaterial()
-    private var textMeshCache: [Int: MeshResource] = [:]
+    @ObservationIgnored private var highlightRings: [ModelEntity] = []
+    @ObservationIgnored private var labelAnchors: [Entity] = []
+    @ObservationIgnored private var labelTextEntities: [ModelEntity] = []
+    @ObservationIgnored private var labelTextMaterial = UnlitMaterial()
+    @ObservationIgnored private var textMeshCache: [Int: MeshResource] = [:]
 
-    private var lightEnvironment: EnvironmentResource?
-    private var darkEnvironment: EnvironmentResource?
+    @ObservationIgnored private var lightEnvironment: EnvironmentResource?
+    @ObservationIgnored private var darkEnvironment: EnvironmentResource?
 
-    private var playableMaterial = UnlitMaterial()
-    private var hintMaterial = UnlitMaterial()
-    private var storeMaterial = UnlitMaterial()
+    @ObservationIgnored private var playableMaterial = UnlitMaterial()
+    @ObservationIgnored private var hintMaterial = UnlitMaterial()
+    @ObservationIgnored private var storeMaterial = UnlitMaterial()
 
     /// The carved slab, kept so its finish can be swapped at runtime.
-    private var slab: ModelEntity?
-    private var appliedMaterial: BoardMaterialStyle?
-    private var materialCache: [BoardMaterialStyle: PhysicallyBasedMaterial] = [:]
+    @ObservationIgnored private var slab: ModelEntity?
+    @ObservationIgnored private var appliedMaterial: BoardMaterialStyle?
+    @ObservationIgnored private var materialCache: [BoardMaterialStyle: PhysicallyBasedMaterial] = [:]
     /// Count of in-flight uncached material bakes; > 0 while at least one is
     /// running, so views can show a busy state instead of an unlabeled pause.
     private var pendingMaterialBakes = 0
@@ -157,20 +165,20 @@ final class BoardScene {
     private(set) var isBuilt = false
 
     // Mirrored view state, so `sync` is cheap to call repeatedly.
-    private var appliedPits: [Int] = []
-    private var appliedPlayable: Set<Int> = []
-    private var appliedHinted: Int?
-    private var appliedStore: Int?
-    private var flipped = false
-    private var portrait = false
-    private var viewSize = CGSize(width: 1, height: 1)
-    private var labelsVisible = true
-    private var isDark = false
-    private var parallaxYaw: Float = 0
-    private var parallaxPitch: Float = 0
+    @ObservationIgnored private var appliedPits: [Int] = []
+    @ObservationIgnored private var appliedPlayable: Set<Int> = []
+    @ObservationIgnored private var appliedHinted: Int?
+    @ObservationIgnored private var appliedStore: Int?
+    @ObservationIgnored private var flipped = false
+    @ObservationIgnored private var portrait = false
+    @ObservationIgnored private var viewSize = CGSize(width: 1, height: 1)
+    @ObservationIgnored private var labelsVisible = true
+    @ObservationIgnored private var isDark = false
+    @ObservationIgnored private var parallaxYaw: Float = 0
+    @ObservationIgnored private var parallaxPitch: Float = 0
     /// 0 at rest, peaks at 1 mid-flip; dollies the camera back during the swing.
-    private var flipArc: Float = 0
-    private var flipArcTask: Task<Void, Never>?
+    @ObservationIgnored private var flipArc: Float = 0
+    @ObservationIgnored private var flipArcTask: Task<Void, Never>?
 
     /// Camera elevation: a fairly high, near-top-down look at the board.
     private let basePitch: Float = -0.92 // ≈ 53° looking down
@@ -200,7 +208,7 @@ final class BoardScene {
         var dark: Bool
         var material: BoardMaterialStyle
     }
-    private var pendingSync: PendingSync?
+    @ObservationIgnored private var pendingSync: PendingSync?
 
     // MARK: - Build
 
@@ -822,7 +830,7 @@ final class BoardScene {
 
     /// User-adjustable multiplier for stone flight pace (1 = default);
     /// durations divide by this, so higher is faster.
-    var animationSpeed: Double = 1.0
+    @ObservationIgnored var animationSpeed: Double = 1.0
 
     private func scaled(_ duration: TimeInterval) -> TimeInterval {
         duration / min(max(animationSpeed, 0.25), 4)
@@ -843,9 +851,9 @@ final class BoardScene {
 
     /// The stones currently traveling as the picked-up pile; index 0 is the
     /// bottom-center stone and the next to be released.
-    private var sowingCluster: [ModelEntity] = []
+    @ObservationIgnored private var sowingCluster: [ModelEntity] = []
     /// Palette index of each cluster stone, parallel to `sowingCluster`.
-    private var sowingClusterColors: [Int] = []
+    @ObservationIgnored private var sowingClusterColors: [Int] = []
     /// Height of the cluster's bottom layer while it floats across the board.
     private let clusterHoverHeight: Float = 0.05
 
@@ -1025,14 +1033,12 @@ final class BoardScene {
               BoardLayout3D.wells.indices.contains(to) else {
             return
         }
-        let color: Int
-        if !lastRemovedColors[from].isEmpty {
-            color = lastRemovedColors[from].removeLast()
-        } else if !stoneColors[from].isEmpty {
-            color = stoneColors[from].removeLast()
-        } else {
-            color = nextFallbackColor()
-        }
+        // `popLast` (not check-then-`removeLast`) so a re-entrant `sync` that
+        // trims the ledger between the check and the removal can never turn
+        // this into an empty-collection trap — it just falls through.
+        let color = lastRemovedColors[from].popLast()
+            ?? stoneColors[from].popLast()
+            ?? nextFallbackColor()
         pendingDropColors[to].append(color)
 
         let source = BoardLayout3D.wells[from].center

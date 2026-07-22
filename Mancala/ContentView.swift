@@ -173,11 +173,7 @@ struct ContentView: View {
     }
 
     private var lightBackgroundColors: [Color] {
-        if visualTheme == .flat {
-            return [.white, .white]
-        }
-
-        return [
+        [
             Color(red: 0.958, green: 0.945, blue: 0.915),
             Color(red: 0.942, green: 0.926, blue: 0.891),
             Color(red: 0.918, green: 0.898, blue: 0.860)
@@ -185,11 +181,7 @@ struct ContentView: View {
     }
 
     private var darkBackgroundColors: [Color] {
-        if visualTheme == .flat {
-            return [.white, .white]
-        }
-
-        return [
+        [
             Color(red: 0.10, green: 0.09, blue: 0.08),
             Color(red: 0.13, green: 0.12, blue: 0.105),
             Color(red: 0.16, green: 0.15, blue: 0.13)
@@ -197,53 +189,37 @@ struct ContentView: View {
     }
 
     private var primaryText: Color {
-        if visualTheme == .flat {
-            return .black
-        }
-        return isDarkMode ? Color(red: 0.93, green: 0.91, blue: 0.87) : Color(red: 0.26, green: 0.24, blue: 0.21)
+        isDarkMode ? Color(red: 0.93, green: 0.91, blue: 0.87) : Color(red: 0.26, green: 0.24, blue: 0.21)
     }
 
     private var secondaryText: Color {
-        primaryText.opacity(visualTheme == .flat ? 0.58 : (isDarkMode ? 0.72 : 0.64))
+        primaryText.opacity(isDarkMode ? 0.72 : 0.64)
     }
 
+    // Tints feed the liquid-glass surfaces only; the flat theme's soft
+    // wells derive their own tones from the page background.
     private var boardTint: Color {
-        if visualTheme == .flat {
-            return .white
-        }
-        return isDarkMode ? Color.white.opacity(0.09) : Color.white.opacity(0.62)
+        isDarkMode ? Color.white.opacity(0.09) : Color.white.opacity(0.62)
     }
 
     private var pitTint: Color {
-        if visualTheme == .flat {
-            return .white
-        }
-        return isDarkMode ? Color.white.opacity(0.07) : Color.white.opacity(0.22)
+        isDarkMode ? Color.white.opacity(0.07) : Color.white.opacity(0.22)
     }
 
     private var playableTint: Color {
-        if visualTheme == .flat {
-            return .white
-        }
-        return isDarkMode ? Color.cyan.opacity(0.14) : Color.blue.opacity(0.10)
+        isDarkMode ? Color.cyan.opacity(0.14) : Color.blue.opacity(0.10)
     }
 
     private var storeTint: Color {
-        if visualTheme == .flat {
-            return .white
-        }
-        return isDarkMode ? Color.white.opacity(0.08) : Color.white.opacity(0.24)
+        isDarkMode ? Color.white.opacity(0.08) : Color.white.opacity(0.24)
     }
 
     private var currentStoreTint: Color {
-        if visualTheme == .flat {
-            return .white
-        }
-        return isDarkMode ? Color.green.opacity(0.16) : Color.green.opacity(0.10)
+        isDarkMode ? Color.green.opacity(0.16) : Color.green.opacity(0.10)
     }
 
     private func displayFont(size: CGFloat, weight: Font.Weight) -> Font {
-        .system(size: size, weight: weight, design: visualTheme == .flat ? .default : .serif)
+        .system(size: size, weight: weight, design: .serif)
     }
 
     private func countFont(size: CGFloat, weight: Font.Weight = .semibold) -> Font {
@@ -909,31 +885,13 @@ struct ContentView: View {
             accessibilityLabel = "Online multiplayer mode"
         }
 
-        return Group {
-            if visualTheme == .flat {
-                Text(title)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(primaryText)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background {
-                        Capsule(style: .continuous)
-                            .fill(Color.white)
-                    }
-                    .overlay {
-                        Capsule(style: .continuous)
-                            .stroke(Color.black.opacity(0.65), lineWidth: 1)
-                    }
-            } else {
-                // The design keeps chrome quiet: the mode reads as a small
-                // letterspaced caption under the title, not a bordered pill.
-                Text(title.uppercased())
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(2.4)
-                    .foregroundStyle(secondaryText.opacity(0.9))
-            }
-        }
-        .accessibilityLabel(accessibilityLabel)
+        // The design keeps chrome quiet: the mode reads as a small
+        // letterspaced caption under the title, not a bordered pill.
+        return Text(title.uppercased())
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(2.4)
+            .foregroundStyle(secondaryText.opacity(0.9))
+            .accessibilityLabel(accessibilityLabel)
     }
 
     private func headerIcon(_ systemName: String) -> some View {
@@ -948,16 +906,8 @@ struct ContentView: View {
     private func headerTitle(alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 3) {
             Text("Mancala")
-                .font(displayFont(size: 32, weight: visualTheme == .flat ? .semibold : .medium))
+                .font(displayFont(size: 32, weight: .medium))
                 .foregroundStyle(primaryText)
-
-            if visualTheme == .flat {
-                Rectangle()
-                    .fill(Color.black.opacity(0.82))
-                    .frame(width: 92, height: 3)
-                    .padding(.bottom, 1)
-                    .accessibilityHidden(true)
-            }
 
             difficultyPill
         }
@@ -1074,7 +1024,7 @@ struct ContentView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    Text(visualTheme == .flat ? "Plain black and white, ultra minimal with no depth or texture." : "A 3D board with several textures to choose from.")
+                    Text(visualTheme == .flat ? "Soft and minimal — pits pressed right into the page, no board." : "A 3D board with several textures to choose from.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
@@ -1558,7 +1508,7 @@ struct ContentView: View {
 
             if !shouldShowStatusPanel {
                 Text(statusText)
-                    .font(displayFont(size: 22, weight: visualTheme == .flat ? .semibold : .regular))
+                    .font(displayFont(size: 22, weight: .regular))
                     .foregroundStyle(primaryText)
                     .contentTransition(.numericText())
                     .multilineTextAlignment(.center)
@@ -1598,18 +1548,12 @@ struct ContentView: View {
     }
 
     private func scoreMarkerColor(for player: Player) -> Color {
-        if visualTheme == .flat {
-            return player == .playerOne ? .white : .black
-        }
-        return player == .playerOne
+        player == .playerOne
             ? Color(red: 0.93, green: 0.90, blue: 0.84)
             : Color(red: 0.30, green: 0.29, blue: 0.27)
     }
 
     private func scoreMarkerStroke(for player: Player) -> Color {
-        if visualTheme == .flat {
-            return .black.opacity(player == .playerOne ? 0.8 : 0)
-        }
         if player == .playerOne {
             return .black.opacity(isDarkMode ? 0 : 0.12)
         }
@@ -1737,9 +1681,9 @@ struct ContentView: View {
             .overlay {
                 if isHinted {
                     if visualTheme == .flat {
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(Color.black.opacity(0.9), lineWidth: 2.5)
-                            .padding(-6)
+                        Ellipse()
+                            .stroke(Color(red: 0.73, green: 0.47, blue: 0.10).opacity(0.9), lineWidth: 2.5)
+                            .padding(-4)
                             .transition(.opacity.combined(with: .scale(scale: 1.03)))
                             .allowsHitTesting(false)
                     } else {
@@ -1761,9 +1705,7 @@ struct ContentView: View {
     }
 
     private var pitHitShape: AnyShape {
-        visualTheme == .liquidGlass
-            ? AnyShape(Ellipse())
-            : AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        AnyShape(Ellipse())
     }
 
     private var canRequestHint: Bool {
@@ -2213,7 +2155,11 @@ struct ContentView: View {
 
     private func stoneView(colorIndex: Int, diameter: CGFloat) -> some View {
         Circle()
-            .fill(stoneColor(for: colorIndex).gradient)
+            // Flat stones are plain matte dots; the glass theme keeps a
+            // gradient sheen.
+            .fill(visualTheme == .flat
+                ? AnyShapeStyle(stoneColor(for: colorIndex))
+                : AnyShapeStyle(stoneColor(for: colorIndex).gradient))
             .frame(width: diameter, height: diameter)
             .overlay {
                 if visualTheme == .liquidGlass {
@@ -2231,7 +2177,7 @@ struct ContentView: View {
             ForEach(0..<min(count, 18), id: \.self) { index in
                 stoneView(colorIndex: index, diameter: 11)
                     .offset(stoneOffset(for: index))
-                    .shadow(color: isDarkMode ? .black.opacity(0.30) : .black.opacity(0.18), radius: 1.5, x: 0, y: 1)
+                    .shadow(color: visualTheme == .flat ? .clear : (isDarkMode ? .black.opacity(0.30) : .black.opacity(0.18)), radius: 1.5, x: 0, y: 1)
                     .transition(.scale.combined(with: .opacity))
             }
         }
@@ -2645,14 +2591,15 @@ struct ContentView: View {
 
     private func stoneColor(for index: Int) -> Color {
         if visualTheme == .flat {
-            let inkWash = [
-                Color.black,
-                Color(red: 0.12, green: 0.12, blue: 0.12),
-                Color(red: 0.22, green: 0.22, blue: 0.22),
-                Color(red: 0.34, green: 0.34, blue: 0.34),
-                Color(red: 0.06, green: 0.06, blue: 0.06)
+            // Alternating charcoal and ochre dots, matching the soft theme's
+            // two-tone stone palette.
+            let flatStones = [
+                Color(red: 0.25, green: 0.26, blue: 0.27),
+                Color(red: 0.73, green: 0.47, blue: 0.10),
+                Color(red: 0.31, green: 0.32, blue: 0.33),
+                Color(red: 0.64, green: 0.40, blue: 0.08)
             ]
-            return inkWash[index % inkWash.count]
+            return flatStones[index % flatStones.count]
         }
 
         let colors = [
@@ -2715,52 +2662,92 @@ private struct MancalaSurfaceModifier: ViewModifier {
         }
     }
 
-    // MARK: Flat
+    // MARK: Flat (soft indents)
 
-    private var lineOpacity: Double {
-        switch role {
-        case .board: 0
-        case .pit: interactive ? 0.92 : 0.35
-        case .store: interactive ? 0.92 : 0.42
-        case .panel: 0.50
-        case .control: 0.80
-        }
+    /// Interior tone of a pressed-in well: a touch brighter than the page in
+    /// light mode (the dish catches light), a touch deeper in dark mode.
+    private var flatWellTone: Color {
+        isDark
+            ? Color(red: 0.105, green: 0.097, blue: 0.085)
+            : Color(red: 0.965, green: 0.953, blue: 0.928)
     }
 
-    private var underlineWeight: CGFloat {
-        switch role {
-        case .board: 0
-        case .pit: interactive ? 2.5 : 1.25
-        case .store: interactive ? 3 : 1.5
-        case .panel: 1.5
-        case .control: 2
-        }
+    /// Raised elements (panels, controls) sit just proud of the page in the
+    /// same near-page tone.
+    private var flatRaisedTone: Color {
+        isDark
+            ? Color(red: 0.155, green: 0.145, blue: 0.128)
+            : Color(red: 0.962, green: 0.948, blue: 0.920)
     }
 
-    private var underlineInset: CGFloat {
-        switch role {
-        case .board: 0
-        case .pit: 14
-        case .store: 18
-        case .panel: 28
-        case .control: 24
-        }
+    private var flatAccent: Color {
+        Color(red: 0.73, green: 0.47, blue: 0.10)
     }
 
-    /// A single flat, uniform-weight rule under each element — no depth, no
-    /// texture, just a plain line.
-    private func flatSurface(_ content: Content) -> some View {
-        content
-            .background(Color.white)
-            .overlay(alignment: isFlipped ? .top : .bottom) {
-                if role != .board {
-                    Rectangle()
-                        .fill(Color.black.opacity(lineOpacity))
-                        .frame(height: underlineWeight)
-                        .padding(.horizontal, underlineInset)
+    private var flatWellShape: AnyShape {
+        role == .pit ? AnyShape(Ellipse()) : AnyShape(Capsule(style: .continuous))
+    }
+
+    /// No board slab at all: pits and stores are indents pressed straight
+    /// into the page background. Shading assumes light from above — a soft
+    /// dark inner shadow along the top rim and a bright catch along the
+    /// bottom rim — and flips with the table.
+    private func flatWell(_ content: Content) -> some View {
+        let lightDirection: CGFloat = isFlipped ? -1 : 1
+
+        return content
+            .background {
+                ZStack {
+                    flatWellShape
+                        .fill(flatWellTone)
+
+                    flatWellShape
+                        .stroke(Color.black.opacity(isDark ? 0.60 : 0.15), lineWidth: 6)
+                        .blur(radius: 5)
+                        .offset(y: 4 * lightDirection)
+                        .mask(flatWellShape)
+
+                    flatWellShape
+                        .stroke(Color.white.opacity(isDark ? 0.06 : 0.90), lineWidth: 5)
+                        .blur(radius: 4)
+                        .offset(y: -3 * lightDirection)
+                        .mask(flatWellShape)
+                }
+                .compositingGroup()
+                .shadow(color: Color.white.opacity(isDark ? 0 : 0.7), radius: 1, x: 0, y: 1.5 * lightDirection)
+                .allowsHitTesting(false)
+            }
+            .overlay {
+                if interactive {
+                    flatWellShape
+                        .stroke(flatAccent.opacity(isDark ? 0.55 : 0.42), lineWidth: 1.5)
+                        .padding(1)
                         .allowsHitTesting(false)
                 }
             }
+    }
+
+    private func flatRaised(_ content: Content) -> some View {
+        content
+            .background {
+                surfaceShape
+                    .fill(flatRaisedTone)
+                    .shadow(color: .black.opacity(isDark ? 0.45 : 0.10), radius: 9, x: 0, y: 5)
+                    .shadow(color: .white.opacity(isDark ? 0.03 : 0.85), radius: 6, x: 0, y: -3)
+                    .allowsHitTesting(false)
+            }
+    }
+
+    @ViewBuilder
+    private func flatSurface(_ content: Content) -> some View {
+        switch role {
+        case .board:
+            content
+        case .pit, .store:
+            flatWell(content)
+        case .panel, .control:
+            flatRaised(content)
+        }
     }
 
     // MARK: Liquid glass
@@ -2985,33 +2972,6 @@ private struct MancalaSurfaceModifier: ViewModifier {
     }
 }
 
-private struct MancalaButtonStyleModifier: ViewModifier {
-    @Environment(\.mancalaVisualTheme) private var visualTheme
-
-    func body(content: Content) -> some View {
-        if visualTheme == .flat {
-            content
-                .buttonStyle(.plain)
-                .background(.white)
-                .overlay {
-                    Circle()
-                        .stroke(Color.black.opacity(0.55), lineWidth: 1.5)
-                        .allowsHitTesting(false)
-                }
-        } else {
-            #if os(visionOS)
-            content.buttonStyle(.bordered)
-            #else
-            if #available(iOS 27.0, *) {
-                content.buttonStyle(.glass)
-            } else {
-                content.buttonStyle(.bordered)
-            }
-            #endif
-        }
-    }
-}
-
 private extension View {
     func mancalaGlassEffect(
         tint: Color,
@@ -3021,10 +2981,6 @@ private extension View {
         seed: Int = 0
     ) -> some View {
         modifier(MancalaSurfaceModifier(role: role, tint: tint, cornerRadius: cornerRadius, interactive: interactive, seed: seed))
-    }
-
-    func mancalaGlassButtonStyle() -> some View {
-        modifier(MancalaButtonStyleModifier())
     }
 
     @ViewBuilder
