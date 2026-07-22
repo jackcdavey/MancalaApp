@@ -1,9 +1,6 @@
 import SwiftUI
 
 struct ContentView: View {
-    private static let defaultImpossibleSearchLimit = 10_000_000
-    private static let defaultImpossibleTimeLimit = 10
-
     @Environment(\.colorScheme) private var colorScheme
     @State private var game = MancalaGame()
     @State private var cellFrames: [Int: CGRect] = [:]
@@ -11,32 +8,32 @@ struct ContentView: View {
     @State private var isAnimatingMove = false
     @State private var hapticTrigger = 0
     @State private var endGameAnimationPulse = false
-    @AppStorage("gameMode") private var gameMode = GameMode.twoPlayer
-    @AppStorage("visualTheme") private var visualTheme = VisualTheme.liquidGlass
-    @AppStorage("boardMaterialStyle") private var boardMaterialStyle = BoardMaterialStyle.walnut
-    @AppStorage("gyroMotionEnabled") private var gyroMotionEnabled = true
-    @AppStorage("stoneAnimationSpeed") private var stoneAnimationSpeed = 1.0
-    @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = false
-    @AppStorage("difficulty") private var difficulty = AIDifficulty.medium
-    @AppStorage("zeroPlayerOneDifficulty") private var zeroPlayerOneDifficulty = AIDifficulty.medium
-    @AppStorage("zeroPlayerTwoDifficulty") private var zeroPlayerTwoDifficulty = AIDifficulty.medium
-    @AppStorage("startingPlayer") private var startingPlayer = StartingPlayer.human
-    @AppStorage("singlePlayerUndoButtonEnabled") private var isSinglePlayerUndoButtonEnabled = false
-    @AppStorage("twoPlayerUndoButtonEnabled") private var isTwoPlayerUndoButtonEnabled = false
-    @AppStorage("singlePlayerShowNumberLabels") private var singlePlayerShowNumberLabels = true
-    @AppStorage("twoPlayerShowNumberLabels") private var twoPlayerShowNumberLabels = true
-    @AppStorage("zeroPlayerShowNumberLabels") private var zeroPlayerShowNumberLabels = true
-    @AppStorage("onlineShowNumberLabels") private var onlineShowNumberLabels = true
-    @AppStorage("singlePlayerOneName") private var singlePlayerOneName = "Player 1"
-    @AppStorage("singlePlayerTwoName") private var singlePlayerTwoName = "Player 2"
-    @AppStorage("twoPlayerOneName") private var twoPlayerOneName = "Player 1"
-    @AppStorage("twoPlayerTwoName") private var twoPlayerTwoName = "Player 2"
-    @AppStorage("zeroPlayerOneName") private var zeroPlayerOneName = "Player 1"
-    @AppStorage("zeroPlayerTwoName") private var zeroPlayerTwoName = "Player 2"
-    @AppStorage("onlinePlayerOneName") private var onlinePlayerOneName = "Player 1"
-    @AppStorage("onlinePlayerTwoName") private var onlinePlayerTwoName = "Player 2"
-    @AppStorage("playerOneName") private var legacyPlayerOneName = "Player 1"
-    @AppStorage("playerTwoName") private var legacyPlayerTwoName = "Player 2"
+    @AppStorage("gameMode") private var gameMode = AppDefaults.gameMode
+    @AppStorage("visualTheme") private var visualTheme = AppDefaults.visualTheme
+    @AppStorage("boardMaterialStyle") private var boardMaterialStyle = AppDefaults.boardMaterialStyle
+    @AppStorage("gyroMotionEnabled") private var gyroMotionEnabled = AppDefaults.gyroMotionEnabled
+    @AppStorage("stoneAnimationSpeed") private var stoneAnimationSpeed = AppDefaults.stoneAnimationSpeed
+    @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = AppDefaults.flipScreenForTwoPlayerTurns
+    @AppStorage("difficulty") private var difficulty = AppDefaults.difficulty
+    @AppStorage("zeroPlayerOneDifficulty") private var zeroPlayerOneDifficulty = AppDefaults.zeroPlayerOneDifficulty
+    @AppStorage("zeroPlayerTwoDifficulty") private var zeroPlayerTwoDifficulty = AppDefaults.zeroPlayerTwoDifficulty
+    @AppStorage("startingPlayer") private var startingPlayer = AppDefaults.startingPlayer
+    @AppStorage("singlePlayerUndoButtonEnabled") private var isSinglePlayerUndoButtonEnabled = AppDefaults.singlePlayerUndoButtonEnabled
+    @AppStorage("twoPlayerUndoButtonEnabled") private var isTwoPlayerUndoButtonEnabled = AppDefaults.twoPlayerUndoButtonEnabled
+    @AppStorage("singlePlayerShowNumberLabels") private var singlePlayerShowNumberLabels = AppDefaults.singlePlayerShowNumberLabels
+    @AppStorage("twoPlayerShowNumberLabels") private var twoPlayerShowNumberLabels = AppDefaults.twoPlayerShowNumberLabels
+    @AppStorage("zeroPlayerShowNumberLabels") private var zeroPlayerShowNumberLabels = AppDefaults.zeroPlayerShowNumberLabels
+    @AppStorage("onlineShowNumberLabels") private var onlineShowNumberLabels = AppDefaults.onlineShowNumberLabels
+    @AppStorage("singlePlayerOneName") private var singlePlayerOneName = AppDefaults.playerOneName
+    @AppStorage("singlePlayerTwoName") private var singlePlayerTwoName = AppDefaults.playerTwoName
+    @AppStorage("twoPlayerOneName") private var twoPlayerOneName = AppDefaults.playerOneName
+    @AppStorage("twoPlayerTwoName") private var twoPlayerTwoName = AppDefaults.playerTwoName
+    @AppStorage("zeroPlayerOneName") private var zeroPlayerOneName = AppDefaults.playerOneName
+    @AppStorage("zeroPlayerTwoName") private var zeroPlayerTwoName = AppDefaults.playerTwoName
+    @AppStorage("onlinePlayerOneName") private var onlinePlayerOneName = AppDefaults.playerOneName
+    @AppStorage("onlinePlayerTwoName") private var onlinePlayerTwoName = AppDefaults.playerTwoName
+    @AppStorage("playerOneName") private var legacyPlayerOneName = AppDefaults.playerOneName
+    @AppStorage("playerTwoName") private var legacyPlayerTwoName = AppDefaults.playerTwoName
     @AppStorage("modeSpecificPlayerNamesMigrated") private var modeSpecificPlayerNamesMigrated = false
     @State private var isSettingsPresented = false
     @State private var isGameHistoryPresented = false
@@ -50,9 +47,9 @@ struct ContentView: View {
     @State private var aiThoughtLog: [String] = []
     @State private var isZeroPlayerPaused = true
     @State private var onlineManager = GameCenterMultiplayerManager()
-    @AppStorage("impossibleSearchLimitMode") private var impossibleSearchLimitMode = ImpossibleSearchLimitMode.positions
-    @AppStorage("impossibleSearchLimit") private var impossibleSearchLimit = ContentView.defaultImpossibleSearchLimit
-    @AppStorage("impossibleSearchTimeLimit") private var impossibleSearchTimeLimit = ContentView.defaultImpossibleTimeLimit
+    @AppStorage("impossibleSearchLimitMode") private var impossibleSearchLimitMode = AppDefaults.impossibleSearchLimitMode
+    @AppStorage("impossibleSearchLimit") private var impossibleSearchLimit = AppDefaults.impossibleSearchLimit
+    @AppStorage("impossibleSearchTimeLimit") private var impossibleSearchTimeLimit = AppDefaults.impossibleSearchTimeLimit
     @State private var impossibleSearchProgress = 0.0
     @State private var impossibleSearchProgressText = ""
     @State private var hintedPitIndex: Int?
@@ -1681,7 +1678,7 @@ struct ContentView: View {
             .overlay {
                 if isHinted {
                     if visualTheme == .flat {
-                        Ellipse()
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
                             .stroke(Color(red: 0.73, green: 0.47, blue: 0.10).opacity(0.9), lineWidth: 2.5)
                             .padding(-4)
                             .transition(.opacity.combined(with: .scale(scale: 1.03)))
@@ -1705,7 +1702,9 @@ struct ContentView: View {
     }
 
     private var pitHitShape: AnyShape {
-        AnyShape(Ellipse())
+        visualTheme == .flat
+            ? AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            : AnyShape(Ellipse())
     }
 
     private var canRequestHint: Bool {
@@ -2173,13 +2172,36 @@ struct ContentView: View {
     }
 
     private func stoneCluster(count: Int) -> some View {
-        ZStack {
-            ForEach(0..<min(count, 18), id: \.self) { index in
-                stoneView(colorIndex: index, diameter: 11)
-                    .offset(stoneOffset(for: index))
-                    .shadow(color: visualTheme == .flat ? .clear : (isDarkMode ? .black.opacity(0.30) : .black.opacity(0.18)), radius: 1.5, x: 0, y: 1)
-                    .transition(.scale.combined(with: .opacity))
+        // Bounds of the stones actually shown (offsets plus stone radius and a
+        // hair of margin). The cluster is recentered on those bounds and scaled
+        // down when its frame is smaller, so stones never spill past the well
+        // or store that contains them — while small clusters keep full size.
+        let shown = min(count, 18)
+        let reach: CGFloat = 6.5
+        var minX: CGFloat = 0, maxX: CGFloat = 0, minY: CGFloat = 0, maxY: CGFloat = 0
+        for index in 0..<shown {
+            let offset = stoneOffset(for: index)
+            minX = min(minX, offset.width - reach)
+            maxX = max(maxX, offset.width + reach)
+            minY = min(minY, offset.height - reach)
+            maxY = max(maxY, offset.height + reach)
+        }
+        let bounds = CGRect(x: minX, y: minY, width: max(maxX - minX, 1), height: max(maxY - minY, 1))
+
+        return GeometryReader { proxy in
+            let scale = min(1, proxy.size.width / bounds.width, proxy.size.height / bounds.height)
+
+            ZStack {
+                ForEach(0..<shown, id: \.self) { index in
+                    stoneView(colorIndex: index, diameter: 11)
+                        .offset(stoneOffset(for: index))
+                        .shadow(color: visualTheme == .flat ? .clear : (isDarkMode ? .black.opacity(0.30) : .black.opacity(0.18)), radius: 1.5, x: 0, y: 1)
+                        .transition(.scale.combined(with: .opacity))
+                }
             }
+            .scaleEffect(scale)
+            .offset(x: -bounds.midX * scale, y: -bounds.midY * scale)
+            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.spring(response: 0.32, dampingFraction: 0.72), value: count)
@@ -2680,12 +2702,26 @@ private struct MancalaSurfaceModifier: ViewModifier {
             : Color(red: 0.962, green: 0.948, blue: 0.920)
     }
 
-    private var flatAccent: Color {
-        Color(red: 0.73, green: 0.47, blue: 0.10)
+    /// Flat pits are soft rounded rectangles (stores stay capsules), matching
+    /// the pressed-into-the-page look without the oval silhouette.
+    private var flatWellShape: AnyShape {
+        role == .pit
+            ? AnyShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            : AnyShape(Capsule(style: .continuous))
     }
 
-    private var flatWellShape: AnyShape {
-        role == .pit ? AnyShape(Ellipse()) : AnyShape(Capsule(style: .continuous))
+    /// Inner-shadow tone of a flat well. Wells the current player can use
+    /// deepen and warm toward umber instead of gaining a hard outline, so the
+    /// turn reads as a change in lighting rather than a drawn border.
+    private var flatWellShadowColor: Color {
+        if interactive {
+            // In dark mode the well tone is near-black, so a warm rim reads as
+            // a faint glow rather than a shadow — keep it gentle.
+            return isDark
+                ? Color(red: 0.80, green: 0.52, blue: 0.18).opacity(0.30)
+                : Color(red: 0.42, green: 0.27, blue: 0.07).opacity(0.40)
+        }
+        return Color.black.opacity(isDark ? 0.60 : 0.15)
     }
 
     /// No board slab at all: pits and stores are indents pressed straight
@@ -2702,7 +2738,7 @@ private struct MancalaSurfaceModifier: ViewModifier {
                         .fill(flatWellTone)
 
                     flatWellShape
-                        .stroke(Color.black.opacity(isDark ? 0.60 : 0.15), lineWidth: 6)
+                        .stroke(flatWellShadowColor, lineWidth: interactive ? 7 : 6)
                         .blur(radius: 5)
                         .offset(y: 4 * lightDirection)
                         .mask(flatWellShape)
@@ -2716,14 +2752,6 @@ private struct MancalaSurfaceModifier: ViewModifier {
                 .compositingGroup()
                 .shadow(color: Color.white.opacity(isDark ? 0 : 0.7), radius: 1, x: 0, y: 1.5 * lightDirection)
                 .allowsHitTesting(false)
-            }
-            .overlay {
-                if interactive {
-                    flatWellShape
-                        .stroke(flatAccent.opacity(isDark ? 0.55 : 0.42), lineWidth: 1.5)
-                        .padding(1)
-                        .allowsHitTesting(false)
-                }
             }
     }
 
