@@ -1,18 +1,7 @@
 import Foundation
 import GameKit
 
-enum MancalaAchievement: String, CaseIterable {
-    case firstWin = "mancala.first_win"
-    case extraTurn = "mancala.extra_turn"
-    case capture = "mancala.capture"
-    case bigCapture = "mancala.big_capture"
-    case closeWin = "mancala.close_win"
-    case dominantWin = "mancala.dominant_win"
-    case onlineWin = "mancala.online_win"
-    case beatAI = "mancala.beat_ai"
-    case beatHardAI = "mancala.beat_hard_ai"
-    case beatImpossibleAI = "mancala.beat_impossible_ai"
-}
+// Achievement identifiers, names, and triggers live in AchievementCatalog.swift.
 
 struct MancalaMoveAchievementResult {
     let movingPlayer: Player
@@ -32,7 +21,7 @@ enum GameCenterAchievements {
         if result.capturedStones > 0 {
             achievements.append(.capture)
         }
-        if result.capturedStones >= 6 {
+        if result.capturedStones >= AchievementThresholds.bigCaptureStones {
             achievements.append(.bigCapture)
         }
 
@@ -55,10 +44,10 @@ enum GameCenterAchievements {
         let margin = winnerScore - loserScore
         var achievements: [MancalaAchievement] = [.firstWin]
 
-        if margin <= 2 {
+        if margin <= AchievementThresholds.closeWinMargin {
             achievements.append(.closeWin)
         }
-        if margin >= 20 {
+        if margin >= AchievementThresholds.dominantWinMargin {
             achievements.append(.dominantWin)
         }
 
