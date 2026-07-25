@@ -38,6 +38,7 @@ struct ContentView: View {
     @State private var isSettingsPresented = false
     @State private var isGameHistoryPresented = false
     @State private var isRulesPresented = false
+    @State private var isMainMenuPresented = true
     @State private var hasRecordedCurrentCompletedGame = false
     @State private var undoHistory: [MancalaGame] = []
     @State private var isAIMovePending = false
@@ -94,18 +95,29 @@ struct ContentView: View {
                     .padding(.vertical, verticalPadding)
                     .frame(maxWidth: isPortrait ? 520 : 980)
                     .frame(maxWidth: .infinity, maxHeight: isPortrait ? .infinity : nil, alignment: isPortrait ? .top : .center)
+                    .accessibilityHidden(isMainMenuPresented)
 
-                if game.isGameOver {
+                if game.isGameOver && !isMainMenuPresented {
                     endGamePopup
                         .padding(.horizontal, 24)
                         .transition(.scale(scale: 0.82).combined(with: .opacity))
                         .zIndex(4)
+                }
+
+                // Layered above the game rather than replacing it, so the 3D
+                // board's RealityView stays mounted (and warms up) behind the
+                // menu; see the ZStack in `gameContent` for why that matters.
+                if isMainMenuPresented {
+                    mainMenu
+                        .transition(.opacity)
+                        .zIndex(5)
                 }
             }
         }
         .environment(\.mancalaVisualTheme, visualTheme)
         .environment(\.mancalaBoardFlipped, tableRotationDegrees == 180)
         .animation(.spring(response: 0.44, dampingFraction: 0.78), value: game.isGameOver)
+        .animation(.easeInOut(duration: 0.3), value: isMainMenuPresented)
         .sensoryFeedback(.selection, trigger: hapticTrigger)
         .sheet(isPresented: $isSettingsPresented) {
             settingsSheet
@@ -863,6 +875,207 @@ struct ContentView: View {
         return CGSize(width: cos(radians) * radius, height: sin(radians) * radius * 0.68)
     }
 
+    // MARK: Main menu
+
+    /// The screen shown on launch (and via the header menu): the game keeps
+    /// running—and the 3D board keeps warming up—underneath, hidden by the
+    /// menu's own copy of the page background.
+    private var mainMenu: some View {
+        GeometryReader { proxy in
+            ZStack {
+                background
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 30) {
+                        mainMenuHeader
+
+                        VStack(spacing: 12) {
+                            ForEach(GameMode.allCases) { mode in
+                                mainMenuModeButton(for: mode)
+                            }
+                        }
+
+                        mainMenuUtilityRow
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 32)
+                    .frame(maxWidth: 440)
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var mainMenuHeader: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 9) {
+                ForEach(0..<5, id: \.self) { index in
+                    Circle()
+                        .fill(stoneColor(for: index).opacity(isDarkMode ? 0.82 : 0.92))
+                        .frame(width: index == 2 ? 13 : 10, height: index == 2 ? 13 : 10)
+                        .shadow(color: .black.opacity(isDarkMode ? 0.32 : 0.15), radius: 2, x: 0, y: 1.5)
+                }
+            }
+            .accessibilityHidden(true)
+
+            VStack(spacing: 6) {
+                Text("Mancala")
+                    .font(displayFont(size: 52, weight: .medium))
+                    .foregroundStyle(primaryText)
+
+                Text("A GAME OF SOWING AND CAPTURE")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(2.4)
+                    .foregroundStyle(secondaryText.opacity(0.9))
+            }
+        }
+    }
+
+    private func mainMenuModeButton(for mode: GameMode) -> some View {
+        let isCurrent = mode == gameMode
+
+        return Button {
+            startGameFromMenu(mode)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: menuSymbolName(for: mode))
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(primaryText)
+                    .frame(width: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(menuTitle(for: mode))
+                        .font(displayFont(size: 19, weight: .semibold))
+                        .foregroundStyle(primaryText)
+
+                    Text(menuSubtitle(for: mode))
+                        .font(.footnote)
+                        .foregroundStyle(secondaryText)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(secondaryText.opacity(0.7))
+            }
+            .padding(.vertical, 13)
+            .padding(.horizontal, 18)
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .mancalaGlassEffect(tint: isCurrent ? playableTint : pitTint, cornerRadius: 18, role: .control, interactive: true)
+        .accessibilityLabel("\(menuTitle(for: mode)). \(menuSubtitle(for: mode))")
+    }
+
+    private var mainMenuUtilityRow: some View {
+        HStack(spacing: 26) {
+            mainMenuUtilityButton("Rules", systemImage: "book.closed") {
+                isRulesPresented = true
+            }
+
+            mainMenuUtilityButton("History", systemImage: "clock.arrow.circlepath") {
+                isGameHistoryPresented = true
+            }
+
+            mainMenuUtilityButton("Settings", systemImage: "gearshape") {
+                isSettingsPresented = true
+            }
+        }
+    }
+
+    private func mainMenuUtilityButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 19, weight: .medium))
+
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(1.2)
+            }
+            .foregroundStyle(secondaryText)
+            .frame(width: 72)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+
+    private func menuTitle(for mode: GameMode) -> String {
+        switch mode {
+        case .twoPlayer:
+            "2 Players"
+        case .singlePlayer:
+            "1 Player"
+        case .zeroPlayer:
+            "0 Player"
+        case .onlineMultiplayer:
+            "Online"
+        }
+    }
+
+    private func menuSubtitle(for mode: GameMode) -> String {
+        if hasResumableGame(for: mode) {
+            return "Continue your game"
+        }
+
+        switch mode {
+        case .twoPlayer:
+            return "Pass and play with a friend"
+        case .singlePlayer:
+            return "Face the AI opponent"
+        case .zeroPlayer:
+            return "Watch two AIs battle"
+        case .onlineMultiplayer:
+            return "A Game Center match"
+        }
+    }
+
+    private func menuSymbolName(for mode: GameMode) -> String {
+        switch mode {
+        case .twoPlayer:
+            "person.2"
+        case .singlePlayer:
+            "person"
+        case .zeroPlayer:
+            "cpu"
+        case .onlineMultiplayer:
+            "globe"
+        }
+    }
+
+    /// A saved game worth advertising as "continue": in progress and not still
+    /// on the untouched opening layout (fresh boards are persisted too).
+    private func hasResumableGame(for mode: GameMode) -> Bool {
+        guard let saved = savedGameState(for: mode), !saved.game.isGameOver else {
+            return false
+        }
+        return saved.game.pits != MancalaGame().pits
+    }
+
+    private func openMainMenu() {
+        if gameMode == .zeroPlayer {
+            isZeroPlayerPaused = true
+        }
+        isMainMenuPresented = true
+    }
+
+    private func startGameFromMenu(_ mode: GameMode) {
+        isMainMenuPresented = false
+
+        if mode != gameMode {
+            let oldMode = gameMode
+            gameMode = mode
+            switchGameMode(from: oldMode, to: mode)
+        } else {
+            Task {
+                await runAIMoveIfNeeded()
+            }
+        }
+    }
+
     private var difficultyPill: some View {
         let title: String
         let accessibilityLabel: String
@@ -970,6 +1183,12 @@ struct ContentView: View {
                 #endif
 
                 Menu {
+                    Button {
+                        openMainMenu()
+                    } label: {
+                        Label("Main Menu", systemImage: "house")
+                    }
+
                     Button {
                         isRulesPresented = true
                     } label: {
@@ -2376,6 +2595,7 @@ struct ContentView: View {
               isAIPlayAvailable,
               isAIControlled(game.currentPlayer),
               !(gameMode == .zeroPlayer && isZeroPlayerPaused),
+              !isMainMenuPresented,
               !game.isGameOver,
               !isAnimatingMove,
               !isAIMovePending else {
