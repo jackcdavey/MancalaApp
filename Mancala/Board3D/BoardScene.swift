@@ -420,11 +420,12 @@ final class BoardScene {
                        fallback: PlatformColor(red: 0.16, green: 0.17, blue: 0.19, alpha: 1))
         case .frostedGlass:
             // Moderate roughness blurs the reflections (frosted, not clear); a
-            // glossy clearcoat over the top keeps a wet sheen. Partially
-            // translucent so it reads as glass rather than painted stone.
-            FinishSpec(roughness: 0.42, metallic: 0, clearcoat: 0.9, clearcoatRoughness: 0.25,
-                       fallback: PlatformColor(red: 0.82, green: 0.88, blue: 0.94, alpha: 1),
-                       opacity: 0.6)
+            // restrained clearcoat keeps a wet sheen without the IBL washing
+            // the slab out to white. Opacity low enough that the background
+            // genuinely shows through — it must read as glass, not paint.
+            FinishSpec(roughness: 0.38, metallic: 0, clearcoat: 0.45, clearcoatRoughness: 0.3,
+                       fallback: PlatformColor(red: 0.44, green: 0.60, blue: 0.76, alpha: 1),
+                       opacity: 0.5)
         }
     }
 

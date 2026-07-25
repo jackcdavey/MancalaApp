@@ -302,7 +302,11 @@ enum BoardTextureBuilder {
         let field = sharedDepthField
         let maxDepth = BoardLayout3D.maxWellDepth
 
-        let base = SIMD3<Float>(0.82, 0.88, 0.94)
+        // Kept well below white: the app background behind the RealityView is
+        // a flat cream, so the translucent blend in `BoardScene` shows mostly
+        // that — the tint has to be saturated enough to survive the blend and
+        // the specular wash, or the slab reads as solid white.
+        let base = SIMD3<Float>(0.44, 0.60, 0.76)
 
         var pixels = [UInt8](repeating: 255, count: width * height * 4)
         for y in 0..<height {
