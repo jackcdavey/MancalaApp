@@ -39,6 +39,11 @@ struct ContentView: View {
     @State private var isGameHistoryPresented = false
     @State private var isRulesPresented = false
     @State private var isMainMenuPresented = true
+    @State private var isMainMenuShowingChallenges = false
+    @State private var activeChallenge: MancalaChallenge?
+    @State private var challengeMovesUsed = 0
+    @State private var challengeFailed = false
+    @AppStorage("completedChallengeIDs") private var completedChallengeIDsStorage = ""
     @State private var hasRecordedCurrentCompletedGame = false
     @State private var undoHistory: [MancalaGame] = []
     @State private var isAIMovePending = false
@@ -97,7 +102,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: isPortrait ? .infinity : nil, alignment: isPortrait ? .top : .center)
                     .accessibilityHidden(isMainMenuPresented)
 
-                if game.isGameOver && !isMainMenuPresented {
+                if (game.isGameOver || challengeFailed) && !isMainMenuPresented {
                     endGamePopup
                         .padding(.horizontal, 24)
                         .transition(.scale(scale: 0.82).combined(with: .opacity))
@@ -117,6 +122,7 @@ struct ContentView: View {
         .environment(\.mancalaVisualTheme, visualTheme)
         .environment(\.mancalaBoardFlipped, tableRotationDegrees == 180)
         .animation(.spring(response: 0.44, dampingFraction: 0.78), value: game.isGameOver)
+        .animation(.spring(response: 0.44, dampingFraction: 0.78), value: challengeFailed)
         .animation(.easeInOut(duration: 0.3), value: isMainMenuPresented)
         .sensoryFeedback(.selection, trigger: hapticTrigger)
         .sheet(isPresented: $isSettingsPresented) {
@@ -158,8 +164,8 @@ struct ContentView: View {
         .onChange(of: onlineManager.pendingRemoteMoveIndex) { _, _ in
             applyPendingOnlineMatchIfNeeded()
         }
-        .onChange(of: game.isGameOver) { _, isGameOver in
-            guard isGameOver else {
+        .onChange(of: game.isGameOver || challengeFailed) { _, isFinished in
+            guard isFinished else {
                 endGameAnimationPulse = false
                 return
             }
@@ -244,7 +250,11 @@ struct ContentView: View {
     }
 
     private var shouldShowUndoButton: Bool {
-        switch gameMode {
+        // Undo would let the player replay sows without spending challenge
+        // moves, so challenges always hide it.
+        guard activeChallenge == nil else { return false }
+
+        return switch gameMode {
         case .singlePlayer:
             isSinglePlayerUndoButtonEnabled
         case .twoPlayer:
@@ -300,7 +310,7 @@ struct ContentView: View {
     /// Pits the local player may tap right now; mirrors `pitButton`'s
     /// enablement predicate for the 3D board's highlight rings.
     private var playablePitSet: Set<Int> {
-        guard !isAnimatingMove, !isAIMovePending else { return [] }
+        guard !isAnimatingMove, !isAIMovePending, !challengeFailed else { return [] }
         return Set((0..<14).filter { game.canPlayPit(at: $0) && canHumanPlayPit(at: $0) })
     }
 
@@ -409,7 +419,11 @@ struct ContentView: View {
     }
 
     private func aiDifficulty(for player: Player) -> AIDifficulty {
-        switch gameMode {
+        if let activeChallenge {
+            return activeChallenge.aiDifficulty
+        }
+
+        return switch gameMode {
         case .singlePlayer:
             difficulty
         case .zeroPlayer:
@@ -434,7 +448,21 @@ struct ContentView: View {
         }
     }
 
+    /// The player beat the active challenge: won the game without exceeding
+    /// the sow budget.
+    private var isChallengeWon: Bool {
+        guard let activeChallenge else { return false }
+        return game.winner == .playerOne && challengeMovesUsed <= activeChallenge.moveLimit
+    }
+
     private var endGameTitle: String {
+        if activeChallenge != nil {
+            if isChallengeWon {
+                return "Challenge Complete"
+            }
+            return challengeFailed && !game.isGameOver ? "Out of Moves" : "Challenge Failed"
+        }
+
         if game.isDraw {
             return "Draw Game"
         }
@@ -455,10 +483,33 @@ struct ContentView: View {
     }
 
     private var endGameSubtitle: String {
-        "\(game.storeCount(for: .playerOne)) - \(game.storeCount(for: .playerTwo))"
+        if let activeChallenge {
+            if isChallengeWon {
+                return "Solved in \(challengeMovesUsed) of \(activeChallenge.moveLimit) moves"
+            }
+            if challengeFailed && !game.isGameOver {
+                return "All \(activeChallenge.moveLimit) moves spent"
+            }
+        }
+
+        return "\(game.storeCount(for: .playerOne)) - \(game.storeCount(for: .playerTwo))"
+    }
+
+    private var endGameSymbolColor: Color {
+        if activeChallenge != nil, !isChallengeWon {
+            return Color.secondary
+        }
+        if game.isDraw {
+            return Color.secondary
+        }
+        return visualTheme == .flat ? Color.black : Color.yellow
     }
 
     private var endGameSymbolName: String {
+        if activeChallenge != nil {
+            return isChallengeWon ? "checkmark.seal.fill" : "xmark.seal.fill"
+        }
+
         if game.isDraw {
             return "equal.circle.fill"
         }
@@ -475,6 +526,17 @@ struct ContentView: View {
     }
 
     private var statusText: String {
+        if let activeChallenge, !game.isGameOver {
+            if challengeFailed {
+                return "Out of moves"
+            }
+            if game.currentPlayer == .playerOne {
+                let remaining = max(0, activeChallenge.moveLimit - challengeMovesUsed)
+                return remaining == 1 ? "1 move left" : "\(remaining) moves left"
+            }
+            return "\(displayName(for: .playerTwo))'s turn"
+        }
+
         if gameMode == .onlineMultiplayer, !game.isGameOver {
             return onlineManager.statusMessage
         }
@@ -827,7 +889,7 @@ struct ContentView: View {
 
                 Image(systemName: endGameSymbolName)
                     .font(.system(size: 38, weight: .bold))
-                    .foregroundStyle(game.isDraw ? Color.secondary : (visualTheme == .flat ? Color.black : Color.yellow))
+                    .foregroundStyle(endGameSymbolColor)
                     .scaleEffect(endGameAnimationPulse ? 1.08 : 0.96)
                     .shadow(color: .black.opacity(isDarkMode ? 0.34 : 0.16), radius: 8, x: 0, y: 4)
             }
@@ -846,19 +908,51 @@ struct ContentView: View {
                     .foregroundStyle(secondaryText)
             }
 
-            Button {
-                playAgainFromEndGamePopup()
-            } label: {
-                Label(gameMode == .onlineMultiplayer ? "Play Again Online" : "Play Again", systemImage: "arrow.counterclockwise")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(primaryText)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 16)
-                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            if let activeChallenge {
+                VStack(spacing: 10) {
+                    Button {
+                        startChallenge(activeChallenge)
+                    } label: {
+                        Label(isChallengeWon ? "Play Again" : "Try Again", systemImage: "arrow.counterclockwise")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(primaryText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 16)
+                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, role: .control, interactive: true)
+
+                    Button {
+                        returnToChallengeList()
+                    } label: {
+                        Label("Challenges", systemImage: "list.bullet")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(primaryText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 16)
+                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .mancalaGlassEffect(tint: storeTint, cornerRadius: 18, role: .control, interactive: true)
+                }
+            } else {
+                Button {
+                    playAgainFromEndGamePopup()
+                } label: {
+                    Label(gameMode == .onlineMultiplayer ? "Play Again Online" : "Play Again", systemImage: "arrow.counterclockwise")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(primaryText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 16)
+                        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, role: .control, interactive: true)
             }
-            .buttonStyle(.plain)
-            .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, role: .control, interactive: true)
         }
         .padding(24)
         .frame(maxWidth: 360)
@@ -886,22 +980,33 @@ struct ContentView: View {
                 background
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 30) {
-                        mainMenuHeader
+                    Group {
+                        if isMainMenuShowingChallenges {
+                            challengeListPage
+                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                        } else {
+                            VStack(spacing: 30) {
+                                mainMenuHeader
 
-                        VStack(spacing: 12) {
-                            ForEach(GameMode.allCases) { mode in
-                                mainMenuModeButton(for: mode)
+                                VStack(spacing: 12) {
+                                    ForEach(GameMode.allCases) { mode in
+                                        mainMenuModeButton(for: mode)
+                                    }
+
+                                    mainMenuChallengesButton
+                                }
+
+                                mainMenuUtilityRow
                             }
+                            .transition(.move(edge: .leading).combined(with: .opacity))
                         }
-
-                        mainMenuUtilityRow
                     }
                     .padding(.horizontal, 28)
                     .padding(.vertical, 32)
                     .frame(maxWidth: 440)
                     .frame(maxWidth: .infinity, minHeight: proxy.size.height)
                 }
+                .animation(.spring(response: 0.34, dampingFraction: 0.88), value: isMainMenuShowingChallenges)
             }
         }
         .accessibilityElement(children: .contain)
@@ -967,6 +1072,128 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .mancalaGlassEffect(tint: isCurrent ? playableTint : pitTint, cornerRadius: 18, role: .control, interactive: true)
         .accessibilityLabel("\(menuTitle(for: mode)). \(menuSubtitle(for: mode))")
+    }
+
+    private var mainMenuChallengesButton: some View {
+        let completedCount = ChallengeCatalog.all.count { completedChallengeIDs.contains($0.id) }
+
+        return Button {
+            isMainMenuShowingChallenges = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "checkmark.seal")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(primaryText)
+                    .frame(width: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Challenges")
+                        .font(displayFont(size: 19, weight: .semibold))
+                        .foregroundStyle(primaryText)
+
+                    Text(completedCount == 0
+                         ? "Puzzle boards with move limits"
+                         : "\(completedCount) of \(ChallengeCatalog.all.count) complete")
+                        .font(.footnote)
+                        .foregroundStyle(secondaryText)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(secondaryText.opacity(0.7))
+            }
+            .padding(.vertical, 13)
+            .padding(.horizontal, 18)
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .mancalaGlassEffect(tint: activeChallenge != nil ? playableTint : pitTint, cornerRadius: 18, role: .control, interactive: true)
+        .accessibilityLabel("Challenges. \(completedCount) of \(ChallengeCatalog.all.count) complete")
+    }
+
+    private var challengeListPage: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 6) {
+                Text("Challenges")
+                    .font(displayFont(size: 40, weight: .medium))
+                    .foregroundStyle(primaryText)
+
+                Text("WIN WITHIN THE MOVE LIMIT")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(2.4)
+                    .foregroundStyle(secondaryText.opacity(0.9))
+            }
+
+            VStack(spacing: 12) {
+                ForEach(Array(ChallengeCatalog.all.enumerated()), id: \.element.id) { index, challenge in
+                    challengeRow(challenge, number: index + 1)
+                }
+            }
+
+            Button {
+                isMainMenuShowingChallenges = false
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left")
+                        .font(.caption.weight(.bold))
+
+                    Text("MENU")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(1.2)
+                }
+                .foregroundStyle(secondaryText)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to menu")
+        }
+    }
+
+    private func challengeRow(_ challenge: MancalaChallenge, number: Int) -> some View {
+        let isCompleted = completedChallengeIDs.contains(challenge.id)
+
+        return Button {
+            startChallenge(challenge)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: isCompleted ? "checkmark.seal.fill" : "\(number).circle")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(isCompleted ? Color.green.opacity(isDarkMode ? 0.85 : 0.75) : primaryText)
+                    .frame(width: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(challenge.title)
+                        .font(displayFont(size: 18, weight: .semibold))
+                        .foregroundStyle(primaryText)
+
+                    Text(challenge.subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(secondaryText)
+
+                    Text("\(challenge.moveLimit) \(challenge.moveLimit == 1 ? "move" : "moves") • \(challenge.aiDifficulty.title) AI\(isCompleted ? " • Completed" : "")")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(secondaryText.opacity(0.85))
+                        .padding(.top, 2)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(secondaryText.opacity(0.7))
+            }
+            .padding(.vertical, 13)
+            .padding(.horizontal, 18)
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .mancalaGlassEffect(tint: isCompleted ? currentStoreTint : pitTint, cornerRadius: 18, role: .control, interactive: true)
+        .accessibilityLabel("\(challenge.title). \(challenge.subtitle). \(challenge.moveLimit) moves against \(challenge.aiDifficulty.title) AI.\(isCompleted ? " Completed." : "")")
     }
 
     private var mainMenuUtilityRow: some View {
@@ -1064,6 +1291,19 @@ struct ContentView: View {
 
     private func startGameFromMenu(_ mode: GameMode) {
         isMainMenuPresented = false
+        isMainMenuShowingChallenges = false
+
+        if activeChallenge != nil {
+            // The challenge board was never persisted, so restoring the chosen
+            // mode's save discards it. Ordering matters: `switchGameMode`
+            // persists the outgoing game, and the active challenge is what
+            // suppresses saving the puzzle board over the mode's own save.
+            let oldMode = gameMode
+            gameMode = mode
+            switchGameMode(from: oldMode, to: mode)
+            clearChallengeState()
+            return
+        }
 
         if mode != gameMode {
             let oldMode = gameMode
@@ -1076,9 +1316,88 @@ struct ContentView: View {
         }
     }
 
+    // MARK: Challenges
+
+    private var completedChallengeIDs: Set<String> {
+        Set(completedChallengeIDsStorage.split(separator: ",").map(String.init))
+    }
+
+    private func markChallengeCompleted(_ id: String) {
+        var ids = completedChallengeIDs
+        ids.insert(id)
+        completedChallengeIDsStorage = ids.sorted().joined(separator: ",")
+    }
+
+    private var challengeMovesRemaining: Int {
+        guard let activeChallenge else { return 0 }
+        return max(0, activeChallenge.moveLimit - challengeMovesUsed)
+    }
+
+    private func clearChallengeState() {
+        activeChallenge = nil
+        challengeMovesUsed = 0
+        challengeFailed = false
+    }
+
+    private func startChallenge(_ challenge: MancalaChallenge) {
+        // Keep the save of whatever regular game is being left behind; a
+        // restart mid-challenge must not write the puzzle board anywhere.
+        if activeChallenge == nil {
+            persistStableGameState()
+        }
+        cancelAIThinking(shouldLog: false)
+        isMainMenuPresented = false
+        // Challenges ride the single-player machinery: the AI owns the far
+        // side and per-challenge difficulty overrides the settings value.
+        gameMode = .singlePlayer
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            activeChallenge = challenge
+            challengeMovesUsed = 0
+            challengeFailed = false
+            endGameAnimationPulse = false
+            game = challenge.freshGame
+            undoHistory.removeAll()
+            flyingStone = nil
+            hintedPitIndex = nil
+            isAnimatingMove = false
+            isAIMovePending = false
+            hasRecordedCurrentCompletedGame = false
+        }
+    }
+
+    /// Reopens the menu directly on the challenge page. The finished (or
+    /// stranded) challenge board stays behind the menu; picking anything from
+    /// the menu replaces it.
+    private func returnToChallengeList() {
+        cancelAIThinking(shouldLog: false)
+        isMainMenuShowingChallenges = true
+        isMainMenuPresented = true
+    }
+
+    /// Called after every completed sow — the player's and the AI's response
+    /// alike — once the board has settled.
+    private func evaluateChallengeAfterMove() {
+        guard let activeChallenge else { return }
+
+        if game.isGameOver {
+            if isChallengeWon {
+                markChallengeCompleted(activeChallenge.id)
+            }
+            return
+        }
+
+        if challengeMovesUsed >= activeChallenge.moveLimit,
+           game.currentPlayer == .playerOne,
+           !isAIMovePending,
+           !isAnimatingMove {
+            challengeFailed = true
+        }
+    }
+
     private var difficultyPill: some View {
-        let title: String
-        let accessibilityLabel: String
+        var title: String
+        var accessibilityLabel: String
 
         switch gameMode {
         case .singlePlayer:
@@ -1093,6 +1412,11 @@ struct ContentView: View {
         case .onlineMultiplayer:
             title = "Online"
             accessibilityLabel = "Online multiplayer mode"
+        }
+
+        if let activeChallenge {
+            title = "Challenge • \(activeChallenge.title)"
+            accessibilityLabel = "Challenge: \(activeChallenge.title)"
         }
 
         // The design keeps chrome quiet: the mode reads as a small
@@ -1975,6 +2299,8 @@ struct ContentView: View {
     }
 
     private func canHumanPlayPit(at index: Int) -> Bool {
+        guard !challengeFailed else { return false }
+
         switch gameMode {
         case .twoPlayer:
             return true
@@ -2061,6 +2387,10 @@ struct ContentView: View {
     }
 
     private func resetForSettingsChange() {
+        // A challenge board is a fixed puzzle; settings tweaks made mid-run
+        // must not swap it for a standard opening.
+        guard activeChallenge == nil else { return }
+
         cancelAIThinking()
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             resetGame()
@@ -2072,6 +2402,11 @@ struct ContentView: View {
     }
 
     private func resetCurrentGame() {
+        if let activeChallenge {
+            startChallenge(activeChallenge)
+            return
+        }
+
         let shouldStartAIAfterReset = !isAIMovePending
         cancelAIThinking()
         if gameMode == .zeroPlayer {
@@ -2208,6 +2543,10 @@ struct ContentView: View {
     }
 
     private func persistStableGameState(for mode: GameMode? = nil) {
+        // Challenge boards are one-shot puzzles: never write them over a
+        // mode's saved game.
+        guard activeChallenge == nil else { return }
+
         let mode = mode ?? gameMode
         if game.isGameOver {
             clearSavedGameState(for: mode)
@@ -2227,6 +2566,9 @@ struct ContentView: View {
     }
 
     private func recordCompletedGameIfNeeded() {
+        // Challenge results live in the challenge list, not the game history,
+        // and puzzle boards must not feed Game Center stats.
+        guard activeChallenge == nil else { return }
         guard game.isGameOver, !hasRecordedCurrentCompletedGame else { return }
         let result = CompletedGameResult(
             playerOneName: displayName(for: .playerOne),
@@ -2440,6 +2782,9 @@ struct ContentView: View {
         recordUndoSnapshotIfNeeded()
         hintedPitIndex = nil
         let movingPlayer = game.currentPlayer
+        if activeChallenge != nil, movingPlayer == .playerOne {
+            challengeMovesUsed += 1
+        }
         let moveAchievementResult = moveAchievementResult(for: selectedIndex, movingPlayer: movingPlayer)
         let path = game.sowingPath(from: selectedIndex)
         let canAnimateVisually = is3DBoardActive || cellFrames[selectedIndex] != nil
@@ -2447,15 +2792,18 @@ struct ContentView: View {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 game.playPit(at: selectedIndex)
             }
-            GameCenterAchievements.reportMove(
-                moveAchievementResult,
-                gameMode: gameMode,
-                localPlayerSide: onlineManager.localPlayerSide
-            )
+            if activeChallenge == nil {
+                GameCenterAchievements.reportMove(
+                    moveAchievementResult,
+                    gameMode: gameMode,
+                    localPlayerSide: onlineManager.localPlayerSide
+                )
+            }
             recordCompletedGameIfNeeded()
             persistStableGameState()
             handleOnlineMoveIfNeeded(from: selectedIndex, movingPlayer: movingPlayer)
             await runAIMoveIfNeeded()
+            evaluateChallengeAfterMove()
             return
         }
 
@@ -2511,16 +2859,19 @@ struct ContentView: View {
             game.finishAnimatedMove(lastIndex: lastIndex, captureAlreadyApplied: animatedCapture)
             isAnimatingMove = false
         }
-        GameCenterAchievements.reportMove(
-            moveAchievementResult,
-            gameMode: gameMode,
-            localPlayerSide: onlineManager.localPlayerSide
-        )
+        if activeChallenge == nil {
+            GameCenterAchievements.reportMove(
+                moveAchievementResult,
+                gameMode: gameMode,
+                localPlayerSide: onlineManager.localPlayerSide
+            )
+        }
         recordCompletedGameIfNeeded()
         persistStableGameState()
         handleOnlineMoveIfNeeded(from: selectedIndex, movingPlayer: movingPlayer)
 
         await runAIMoveIfNeeded()
+        evaluateChallengeAfterMove()
     }
 
     private func moveAchievementResult(for selectedIndex: Int, movingPlayer: Player) -> MancalaMoveAchievementResult {
