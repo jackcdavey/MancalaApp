@@ -1,5 +1,28 @@
 import SwiftUI
 
+private struct MancalaVisualThemeKey: EnvironmentKey {
+    static let defaultValue = VisualTheme.liquidGlass
+}
+
+extension EnvironmentValues {
+    var mancalaVisualTheme: VisualTheme {
+        get { self[MancalaVisualThemeKey.self] }
+        set { self[MancalaVisualThemeKey.self] = newValue }
+    }
+}
+
+private struct MancalaBoardFlippedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True while the table is rotated 180° to face player two in flip-each-turn mode.
+    var mancalaBoardFlipped: Bool {
+        get { self[MancalaBoardFlippedKey.self] }
+        set { self[MancalaBoardFlippedKey.self] = newValue }
+    }
+}
+
 struct FlyingStone: Equatable {
     var position: CGPoint
     let colorIndex: Int

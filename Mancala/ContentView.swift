@@ -1,10 +1,6 @@
 import SwiftUI
-import FoundationModels
 
 struct ContentView: View {
-    private static let defaultImpossibleSearchLimit = 10_000_000
-    private static let defaultImpossibleTimeLimit = 10
-
     @Environment(\.colorScheme) private var colorScheme
     @State private var game = MancalaGame()
     @State private var cellFrames: [Int: CGRect] = [:]
@@ -12,28 +8,32 @@ struct ContentView: View {
     @State private var isAnimatingMove = false
     @State private var hapticTrigger = 0
     @State private var endGameAnimationPulse = false
-    @AppStorage("gameMode") private var gameMode = GameMode.twoPlayer
-    @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = false
-    @AppStorage("difficulty") private var difficulty = AIDifficulty.medium
-    @AppStorage("zeroPlayerOneDifficulty") private var zeroPlayerOneDifficulty = AIDifficulty.medium
-    @AppStorage("zeroPlayerTwoDifficulty") private var zeroPlayerTwoDifficulty = AIDifficulty.medium
-    @AppStorage("startingPlayer") private var startingPlayer = StartingPlayer.human
-    @AppStorage("singlePlayerUndoButtonEnabled") private var isSinglePlayerUndoButtonEnabled = false
-    @AppStorage("twoPlayerUndoButtonEnabled") private var isTwoPlayerUndoButtonEnabled = false
-    @AppStorage("singlePlayerShowNumberLabels") private var singlePlayerShowNumberLabels = true
-    @AppStorage("twoPlayerShowNumberLabels") private var twoPlayerShowNumberLabels = true
-    @AppStorage("zeroPlayerShowNumberLabels") private var zeroPlayerShowNumberLabels = true
-    @AppStorage("onlineShowNumberLabels") private var onlineShowNumberLabels = true
-    @AppStorage("singlePlayerOneName") private var singlePlayerOneName = "Player 1"
-    @AppStorage("singlePlayerTwoName") private var singlePlayerTwoName = "Player 2"
-    @AppStorage("twoPlayerOneName") private var twoPlayerOneName = "Player 1"
-    @AppStorage("twoPlayerTwoName") private var twoPlayerTwoName = "Player 2"
-    @AppStorage("zeroPlayerOneName") private var zeroPlayerOneName = "Player 1"
-    @AppStorage("zeroPlayerTwoName") private var zeroPlayerTwoName = "Player 2"
-    @AppStorage("onlinePlayerOneName") private var onlinePlayerOneName = "Player 1"
-    @AppStorage("onlinePlayerTwoName") private var onlinePlayerTwoName = "Player 2"
-    @AppStorage("playerOneName") private var legacyPlayerOneName = "Player 1"
-    @AppStorage("playerTwoName") private var legacyPlayerTwoName = "Player 2"
+    @AppStorage("gameMode") private var gameMode = AppDefaults.gameMode
+    @AppStorage("visualTheme") private var visualTheme = AppDefaults.visualTheme
+    @AppStorage("boardMaterialStyle") private var boardMaterialStyle = AppDefaults.boardMaterialStyle
+    @AppStorage("gyroMotionEnabled") private var gyroMotionEnabled = AppDefaults.gyroMotionEnabled
+    @AppStorage("stoneAnimationSpeed") private var stoneAnimationSpeed = AppDefaults.stoneAnimationSpeed
+    @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = AppDefaults.flipScreenForTwoPlayerTurns
+    @AppStorage("difficulty") private var difficulty = AppDefaults.difficulty
+    @AppStorage("zeroPlayerOneDifficulty") private var zeroPlayerOneDifficulty = AppDefaults.zeroPlayerOneDifficulty
+    @AppStorage("zeroPlayerTwoDifficulty") private var zeroPlayerTwoDifficulty = AppDefaults.zeroPlayerTwoDifficulty
+    @AppStorage("startingPlayer") private var startingPlayer = AppDefaults.startingPlayer
+    @AppStorage("singlePlayerUndoButtonEnabled") private var isSinglePlayerUndoButtonEnabled = AppDefaults.singlePlayerUndoButtonEnabled
+    @AppStorage("twoPlayerUndoButtonEnabled") private var isTwoPlayerUndoButtonEnabled = AppDefaults.twoPlayerUndoButtonEnabled
+    @AppStorage("singlePlayerShowNumberLabels") private var singlePlayerShowNumberLabels = AppDefaults.singlePlayerShowNumberLabels
+    @AppStorage("twoPlayerShowNumberLabels") private var twoPlayerShowNumberLabels = AppDefaults.twoPlayerShowNumberLabels
+    @AppStorage("zeroPlayerShowNumberLabels") private var zeroPlayerShowNumberLabels = AppDefaults.zeroPlayerShowNumberLabels
+    @AppStorage("onlineShowNumberLabels") private var onlineShowNumberLabels = AppDefaults.onlineShowNumberLabels
+    @AppStorage("singlePlayerOneName") private var singlePlayerOneName = AppDefaults.playerOneName
+    @AppStorage("singlePlayerTwoName") private var singlePlayerTwoName = AppDefaults.playerTwoName
+    @AppStorage("twoPlayerOneName") private var twoPlayerOneName = AppDefaults.playerOneName
+    @AppStorage("twoPlayerTwoName") private var twoPlayerTwoName = AppDefaults.playerTwoName
+    @AppStorage("zeroPlayerOneName") private var zeroPlayerOneName = AppDefaults.playerOneName
+    @AppStorage("zeroPlayerTwoName") private var zeroPlayerTwoName = AppDefaults.playerTwoName
+    @AppStorage("onlinePlayerOneName") private var onlinePlayerOneName = AppDefaults.playerOneName
+    @AppStorage("onlinePlayerTwoName") private var onlinePlayerTwoName = AppDefaults.playerTwoName
+    @AppStorage("playerOneName") private var legacyPlayerOneName = AppDefaults.playerOneName
+    @AppStorage("playerTwoName") private var legacyPlayerTwoName = AppDefaults.playerTwoName
     @AppStorage("modeSpecificPlayerNamesMigrated") private var modeSpecificPlayerNamesMigrated = false
     @State private var isSettingsPresented = false
     @State private var isGameHistoryPresented = false
@@ -47,9 +47,9 @@ struct ContentView: View {
     @State private var aiThoughtLog: [String] = []
     @State private var isZeroPlayerPaused = true
     @State private var onlineManager = GameCenterMultiplayerManager()
-    @AppStorage("impossibleSearchLimitMode") private var impossibleSearchLimitMode = ImpossibleSearchLimitMode.positions
-    @AppStorage("impossibleSearchLimit") private var impossibleSearchLimit = ContentView.defaultImpossibleSearchLimit
-    @AppStorage("impossibleSearchTimeLimit") private var impossibleSearchTimeLimit = ContentView.defaultImpossibleTimeLimit
+    @AppStorage("impossibleSearchLimitMode") private var impossibleSearchLimitMode = AppDefaults.impossibleSearchLimitMode
+    @AppStorage("impossibleSearchLimit") private var impossibleSearchLimit = AppDefaults.impossibleSearchLimit
+    @AppStorage("impossibleSearchTimeLimit") private var impossibleSearchTimeLimit = AppDefaults.impossibleSearchTimeLimit
     @State private var impossibleSearchProgress = 0.0
     @State private var impossibleSearchProgressText = ""
     @State private var hintedPitIndex: Int?
@@ -60,8 +60,14 @@ struct ContentView: View {
     @AppStorage("savedOnlineGameState") private var savedOnlineGameState = Data()
     @AppStorage("completedGameHistory") private var completedGameHistoryData = Data()
     @AppStorage("savedGameState") private var legacySavedGameState = Data()
-
-    private let model = SystemLanguageModel.default
+    #if os(visionOS)
+    @Environment(SpatialBoardModel.self) private var spatialBoard
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
+    #else
+    @State private var boardScene = BoardScene()
+    @State private var motionParallax = MotionParallaxController()
+    #endif
 
     private var isDarkMode: Bool {
         colorScheme == .dark
@@ -70,23 +76,24 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geometry in
             let isPortrait = geometry.size.height > geometry.size.width
-            let verticalPadding: CGFloat = isPortrait ? 8 : 20
+            let verticalPadding: CGFloat = isPortrait ? 8 : 10
             let availableHeight = geometry.size.height - (verticalPadding * 2)
 
             ZStack {
                 background
 
-                if isPortrait {
-                    gameContent(isPortrait: true, availableHeight: availableHeight)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, verticalPadding)
-                        .frame(maxWidth: 520)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                } else {
-                    gameContent(isPortrait: false, availableHeight: availableHeight)
-                        .padding(verticalPadding)
-                        .frame(maxWidth: 980)
-                }
+                // A single call site kept stable across orientation changes —
+                // not an `if isPortrait {...} else {...}` branch — so the 3D
+                // board's RealityView (nested inside `gameContent`) is never
+                // torn down and recreated on rotation. Recreating it loses the
+                // RealityKit scene the persisted `BoardScene` entity graph was
+                // attached to, leaving the board invisible (same failure mode
+                // as switching visual themes; see the ZStack in `gameContent`).
+                gameContent(isPortrait: isPortrait, availableHeight: availableHeight)
+                    .padding(.horizontal, isPortrait ? 16 : 0)
+                    .padding(.vertical, verticalPadding)
+                    .frame(maxWidth: isPortrait ? 520 : 980)
+                    .frame(maxWidth: .infinity, maxHeight: isPortrait ? .infinity : nil, alignment: isPortrait ? .top : .center)
 
                 if game.isGameOver {
                     endGamePopup
@@ -96,6 +103,8 @@ struct ContentView: View {
                 }
             }
         }
+        .environment(\.mancalaVisualTheme, visualTheme)
+        .environment(\.mancalaBoardFlipped, tableRotationDegrees == 180)
         .animation(.spring(response: 0.44, dampingFraction: 0.78), value: game.isGameOver)
         .sensoryFeedback(.selection, trigger: hapticTrigger)
         .sheet(isPresented: $isSettingsPresented) {
@@ -112,6 +121,25 @@ struct ContentView: View {
             restoreSavedGameIfNeeded()
             onlineManager.authenticateLocalPlayer()
         }
+        #if os(visionOS)
+        .task {
+            spatialBoard.scene.onPitTapped = { index in
+                Task { await animateMove(from: index) }
+            }
+            // The 3D theme lives in the room on visionOS; open the board
+            // volume on launch. If the user closes it, `isOpen` goes false
+            // and the window shows the 2D board instead.
+            if visualTheme == .liquidGlass {
+                setSpatialBoard(open: true)
+            }
+        }
+        .onChange(of: spatialSyncState, initial: true) { _, _ in
+            syncSpatialBoard()
+        }
+        .onChange(of: visualTheme) { _, theme in
+            setSpatialBoard(open: theme == .liquidGlass)
+        }
+        #endif
         .onChange(of: onlineManager.currentMatchID) { _, _ in
             applyPendingOnlineMatchIfNeeded()
         }
@@ -143,30 +171,32 @@ struct ContentView: View {
 
     private var lightBackgroundColors: [Color] {
         [
-            Color(red: 0.93, green: 0.97, blue: 1.00),
-            Color(red: 0.82, green: 0.90, blue: 0.96),
-            Color(red: 0.92, green: 0.90, blue: 0.84)
+            Color(red: 0.958, green: 0.945, blue: 0.915),
+            Color(red: 0.942, green: 0.926, blue: 0.891),
+            Color(red: 0.918, green: 0.898, blue: 0.860)
         ]
     }
 
     private var darkBackgroundColors: [Color] {
         [
-            Color(red: 0.06, green: 0.08, blue: 0.11),
-            Color(red: 0.10, green: 0.14, blue: 0.19),
-            Color(red: 0.16, green: 0.15, blue: 0.12)
+            Color(red: 0.10, green: 0.09, blue: 0.08),
+            Color(red: 0.13, green: 0.12, blue: 0.105),
+            Color(red: 0.16, green: 0.15, blue: 0.13)
         ]
     }
 
     private var primaryText: Color {
-        isDarkMode ? .white : Color(red: 0.08, green: 0.10, blue: 0.12)
+        isDarkMode ? Color(red: 0.93, green: 0.91, blue: 0.87) : Color(red: 0.26, green: 0.24, blue: 0.21)
     }
 
     private var secondaryText: Color {
         primaryText.opacity(isDarkMode ? 0.72 : 0.64)
     }
 
+    // Tints feed the liquid-glass surfaces only; the flat theme's soft
+    // wells derive their own tones from the page background.
     private var boardTint: Color {
-        isDarkMode ? Color.white.opacity(0.08) : Color.white.opacity(0.30)
+        isDarkMode ? Color.white.opacity(0.09) : Color.white.opacity(0.62)
     }
 
     private var pitTint: Color {
@@ -174,7 +204,7 @@ struct ContentView: View {
     }
 
     private var playableTint: Color {
-        isDarkMode ? Color.cyan.opacity(0.20) : Color.blue.opacity(0.18)
+        isDarkMode ? Color.cyan.opacity(0.14) : Color.blue.opacity(0.10)
     }
 
     private var storeTint: Color {
@@ -182,22 +212,19 @@ struct ContentView: View {
     }
 
     private var currentStoreTint: Color {
-        isDarkMode ? Color.green.opacity(0.22) : Color.green.opacity(0.18)
+        isDarkMode ? Color.green.opacity(0.16) : Color.green.opacity(0.10)
     }
 
-    private var quietStroke: Color {
-        isDarkMode ? Color.white.opacity(0.18) : Color.black.opacity(0.16)
+    private func displayFont(size: CGFloat, weight: Font.Weight) -> Font {
+        .system(size: size, weight: weight, design: .serif)
     }
 
-    private var strongStroke: Color {
-        isDarkMode ? Color.cyan.opacity(0.58) : Color.blue.opacity(0.56)
+    private func countFont(size: CGFloat, weight: Font.Weight = .semibold) -> Font {
+        displayFont(size: size, weight: weight).monospacedDigit()
     }
 
     private var isAIPlayAvailable: Bool {
-        if case .available = model.availability {
-            return true
-        }
-        return false
+        true
     }
 
     private var shouldShowStatusPanel: Bool {
@@ -230,6 +257,39 @@ struct ContentView: View {
 
     private var tableRotationDegrees: Double {
         gameMode == .twoPlayer && flipScreenForTwoPlayerTurns && game.currentPlayer == .playerTwo && !game.isGameOver ? 180 : 0
+    }
+
+    private var boardTiltDegrees: Double {
+        guard visualTheme == .liquidGlass else { return 0 }
+        return tableRotationDegrees == 180 ? -22 : 22
+    }
+
+    /// The default theme renders as a real RealityKit board: in-window on
+    /// iOS/macOS, anchored to a real surface via the immersive space on
+    /// visionOS. On visionOS this is only "active" while the space is open —
+    /// if the user closes it, the window falls back to the 2D board.
+    private var is3DBoardActive: Bool {
+        #if os(visionOS)
+        return visualTheme == .liquidGlass && spatialBoard.isOpen
+        #else
+        return visualTheme == .liquidGlass
+        #endif
+    }
+
+    /// The scene that stone-flight animations should target, when one is live.
+    private var activeBoardScene: BoardScene? {
+        #if os(visionOS)
+        return spatialBoard.isOpen ? spatialBoard.scene : nil
+        #else
+        return is3DBoardActive ? boardScene : nil
+        #endif
+    }
+
+    /// Pits the local player may tap right now; mirrors `pitButton`'s
+    /// enablement predicate for the 3D board's highlight rings.
+    private var playablePitSet: Set<Int> {
+        guard !isAnimatingMove, !isAIMovePending else { return [] }
+        return Set((0..<14).filter { game.canPlayPit(at: $0) && canHumanPlayPit(at: $0) })
     }
 
     private var shouldShowNumberLabels: Bool {
@@ -460,18 +520,10 @@ struct ContentView: View {
     }
 
     private var modelAvailabilityMessage: String? {
-        switch model.availability {
-        case .available:
-            return nil
-        case .unavailable(.deviceNotEligible):
-            return "AI play requires a device that supports Apple Intelligence."
-        case .unavailable(.appleIntelligenceNotEnabled):
-            return "Turn on Apple Intelligence in Settings to use AI play."
-        case .unavailable(.modelNotReady):
-            return "The on-device model is still getting ready. Try again later."
-        case .unavailable:
-            return "AI play is unavailable on this device right now."
+        if #available(iOS 27.0, *) {
+            return FoundationModelAIMoveProvider.availabilityMessage
         }
+        return "AI play uses local heuristics on iOS 26."
     }
 
     private func gameContent(isPortrait: Bool, availableHeight: CGFloat) -> some View {
@@ -479,7 +531,10 @@ struct ContentView: View {
         let headerHeight: CGFloat = isPortrait ? 76 : (shouldShowStatusPanel && isThoughtPanelExpanded ? 172 : 64)
         let statusHeight: CGFloat = isPortrait && shouldShowStatusPanel ? (isThoughtPanelExpanded ? 172 : 46) : 0
         let visibleStatusSpacing = isPortrait && shouldShowStatusPanel ? contentSpacing : 0
-        let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing)
+        let scoreRowHeight: CGFloat = isPortrait ? 70 : 0
+        let scoreRowSpacing = isPortrait ? contentSpacing : 0
+        let slabClearance: CGFloat = visualTheme == .liquidGlass && !is3DBoardActive ? 42 : 0
+        let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing - scoreRowHeight - scoreRowSpacing - slabClearance)
         let portraitStoreHeight = min(54, max(38, boardHeight * 0.10))
         let portraitPitHeight = max(34, (boardHeight - 24 - 20 - (portraitStoreHeight * 2) - 40) / 6)
 
@@ -487,30 +542,39 @@ struct ContentView: View {
             header(isPortrait: isPortrait)
                 .frame(height: headerHeight)
 
-            boardContainer {
-                if isPortrait {
-                    portraitBoard(pitHeight: portraitPitHeight, storeHeight: portraitStoreHeight)
-                } else {
-                    wideBoard
+            #if os(visionOS)
+            if is3DBoardActive {
+                spatialBoardPlaceholder(boardHeight: boardHeight)
+            } else {
+                twoDimensionalBoard(isPortrait: isPortrait, boardHeight: boardHeight, portraitPitHeight: portraitPitHeight, portraitStoreHeight: portraitStoreHeight)
+            }
+            #else
+            ZStack {
+                // Kept mounted at all times, even when another theme is showing:
+                // tearing down and recreating the RealityView loses the RealityKit
+                // scene the persisted `BoardScene` entity graph was attached to, so
+                // reusing that graph in a freshly recreated RealityView renders
+                // nothing. Hiding it in place avoids ever destroying it.
+                board3DSection(isPortrait: isPortrait, boardHeight: boardHeight)
+                    // Break out of `gameContent`'s horizontal inset so the board
+                    // spans the full screen width and can travel to the real
+                    // edges when parallax tilts it (header/status stay inset).
+                    // Only applied while actually shown, so the hidden layer
+                    // doesn't widen the ZStack when the 2D board is active.
+                    .padding(.horizontal, is3DBoardActive ? (isPortrait ? -16 : -10) : 0)
+                    .opacity(is3DBoardActive ? 1 : 0)
+                    .allowsHitTesting(is3DBoardActive)
+                    .accessibilityHidden(!is3DBoardActive)
+
+                if !is3DBoardActive {
+                    twoDimensionalBoard(isPortrait: isPortrait, boardHeight: boardHeight, portraitPitHeight: portraitPitHeight, portraitStoreHeight: portraitStoreHeight)
                 }
             }
-            .frame(height: isPortrait ? boardHeight : nil)
-            .coordinateSpace(name: "BoardSpace")
-            .overlayPreferenceValue(CellFramePreferenceKey.self) { preferences in
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear {
-                            updateCellFrames(preferences, proxy: proxy)
-                        }
-                        .onChange(of: preferences) { _, newValue in
-                            updateCellFrames(newValue, proxy: proxy)
-                        }
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if let flyingStone {
-                    animatedStone(flyingStone)
-                }
+            #endif
+
+            if isPortrait {
+                scoreRow
+                    .frame(height: scoreRowHeight)
             }
 
             if isPortrait && shouldShowStatusPanel {
@@ -518,17 +582,224 @@ struct ContentView: View {
                     .frame(height: statusHeight)
             }
         }
+        .padding(.bottom, !isPortrait && visualTheme == .liquidGlass && !is3DBoardActive ? 30 : 0)
     }
 
-    @ViewBuilder
-    private func boardContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        #if os(visionOS)
-        content()
-        #else
-        GlassEffectContainer(spacing: 16) {
-            content()
+    private func twoDimensionalBoard(isPortrait: Bool, boardHeight: CGFloat, portraitPitHeight: CGFloat, portraitStoreHeight: CGFloat) -> some View {
+        boardContainer {
+            if isPortrait {
+                portraitBoard(pitHeight: portraitPitHeight, storeHeight: portraitStoreHeight)
+            } else {
+                wideBoard
+            }
         }
-        #endif
+        .padding(.horizontal, visualTheme == .liquidGlass ? (isPortrait ? 30 : 48) : 0)
+        .frame(height: isPortrait ? boardHeight : nil)
+        .coordinateSpace(name: "BoardSpace")
+        .overlayPreferenceValue(CellFramePreferenceKey.self) { preferences in
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        updateCellFrames(preferences, proxy: proxy)
+                    }
+                    .onChange(of: preferences) { _, newValue in
+                        updateCellFrames(newValue, proxy: proxy)
+                    }
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if let flyingStone {
+                animatedStone(flyingStone)
+            }
+        }
+        .rotation3DEffect(
+            .degrees(boardTiltDegrees),
+            axis: (x: 1, y: 0, z: 0),
+            perspective: 0.45
+        )
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: boardTiltDegrees)
+    }
+
+    #if os(visionOS)
+    /// Fills the window's board slot while the real board sits anchored out in
+    /// the room; the window keeps score, status, and controls.
+    private func spatialBoardPlaceholder(boardHeight: CGFloat) -> some View {
+        VStack(spacing: 14) {
+            if spatialBoard.scene.isBuilt {
+                Image(systemName: "cube.transparent")
+                    .font(.system(size: 44, weight: .light))
+                    .foregroundStyle(.secondary)
+
+                Text("The board is placed in your space")
+                    .font(.headline)
+                    .foregroundStyle(primaryText)
+
+                Text("Touch a pit — or look at it and pinch — to sow. Use the handle below the board to move it or snap it onto a surface.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 380)
+            } else {
+                // Mesh/texture generation can take a visible moment, especially
+                // on first launch — say so instead of leaving an empty room.
+                ProgressView()
+                    .controlSize(.large)
+
+                Text("Preparing board…")
+                    .font(.headline)
+                    .foregroundStyle(primaryText)
+            }
+
+            Button {
+                setSpatialBoard(open: false)
+            } label: {
+                Label("Return Board to Window", systemImage: "arrow.down.forward.and.arrow.up.backward")
+            }
+            .buttonStyle(.bordered)
+        }
+        .animation(.easeInOut(duration: 0.28), value: spatialBoard.scene.isBuilt)
+        .frame(maxWidth: .infinity)
+        .frame(height: boardHeight)
+    }
+
+    /// Everything the anchored board mirrors, snapshotted so a single
+    /// `onChange` can push updates into the shared scene.
+    private var spatialSyncState: SpatialBoardSyncState {
+        SpatialBoardSyncState(
+            pits: game.pits,
+            playable: playablePitSet,
+            hinted: hintedPitIndex,
+            currentStore: game.isGameOver ? nil : game.storeIndex(for: game.currentPlayer),
+            showLabels: shouldShowNumberLabels,
+            dark: isDarkMode,
+            material: boardMaterialStyle
+        )
+    }
+
+    private func syncSpatialBoard() {
+        let state = spatialSyncState
+        // No camera on visionOS, so flip/portrait/viewSize are inert.
+        spatialBoard.scene.sync(
+            pits: state.pits,
+            playable: state.playable,
+            hinted: state.hinted,
+            currentStore: state.currentStore,
+            flipped: false,
+            portrait: false,
+            viewSize: CGSize(width: 1, height: 1),
+            showLabels: state.showLabels,
+            dark: state.dark,
+            material: state.material
+        )
+    }
+
+    private func setSpatialBoard(open: Bool) {
+        if open, !spatialBoard.isOpen {
+            openWindow(id: SpatialBoardModel.windowID)
+        } else if !open, spatialBoard.isOpen {
+            dismissWindow(id: SpatialBoardModel.windowID)
+        }
+    }
+    #else
+    /// The RealityKit board used by the default theme. All surrounding
+    /// chrome (header, status panel, popups) stays SwiftUI.
+    private func board3DSection(isPortrait: Bool, boardHeight: CGFloat) -> some View {
+        Board3DView(
+            pits: game.pits,
+            playablePits: playablePitSet,
+            hintedPit: hintedPitIndex,
+            currentStoreIndex: game.isGameOver ? nil : game.storeIndex(for: game.currentPlayer),
+            flipped: tableRotationDegrees == 180,
+            isPortrait: isPortrait,
+            showLabels: shouldShowNumberLabels,
+            isDarkMode: isDarkMode,
+            boardMaterial: boardMaterialStyle,
+            scene: boardScene
+        )
+        .frame(height: isPortrait ? boardHeight : nil)
+        .frame(maxHeight: isPortrait ? nil : .infinity)
+        .overlay {
+            if !boardScene.isBuilt {
+                boardLoadingOverlay
+            } else if boardScene.isSwitchingMaterial {
+                materialSwitchOverlay
+            }
+        }
+        .animation(.easeInOut(duration: 0.28), value: boardScene.isBuilt)
+        .animation(.easeInOut(duration: 0.2), value: boardScene.isSwitchingMaterial)
+        .onAppear {
+            boardScene.onPitTapped = { index in
+                Task { await animateMove(from: index) }
+            }
+            if gyroMotionEnabled {
+                startMotionParallax()
+            }
+        }
+        .onDisappear {
+            motionParallax.stop()
+        }
+        .onChange(of: gyroMotionEnabled) { _, enabled in
+            if enabled {
+                startMotionParallax()
+            } else {
+                motionParallax.stop()
+                boardScene.setParallax(yaw: 0, pitch: 0)
+            }
+        }
+    }
+
+    /// Shown over the board area while `BoardScene` is still building its
+    /// entity graph — mesh generation, texture baking, and (on first launch
+    /// in particular) the RealityKit engine's own render-graph warm-up can
+    /// take long enough that an unlabeled blank board reads as a freeze.
+    private var boardLoadingOverlay: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.large)
+
+            Text("Preparing 3D board…")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(primaryText)
+        }
+        .padding(24)
+        .frame(minWidth: 220)
+        .mancalaGlassEffect(tint: storeTint, cornerRadius: 20, role: .panel)
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Preparing 3D board")
+    }
+
+    /// Safety net for the rare case a material is selected before
+    /// `BoardScene.prewarmRemainingMaterials()` has cached it — normally every
+    /// finish is baked shortly after launch, so switching in Settings is an
+    /// instant cache hit and this never appears.
+    private var materialSwitchOverlay: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+
+            Text("Applying material…")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(primaryText)
+        }
+        .padding(16)
+        .mancalaGlassEffect(tint: storeTint, cornerRadius: 16, role: .panel)
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Applying material")
+    }
+
+    private func startMotionParallax() {
+        motionParallax.start { yaw, pitch in
+            boardScene.setParallax(yaw: yaw, pitch: pitch)
+        }
+    }
+    #endif
+
+    /// The board renders its own frosted surfaces (no `glassEffect` inside),
+    /// so it must not sit in a `GlassEffectContainer` — the container changes
+    /// compositing on real hardware in ways the simulator doesn't reproduce.
+    private func boardContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
     }
 
     private var endGamePopup: some View {
@@ -544,7 +815,7 @@ struct ContentView: View {
 
                 Image(systemName: endGameSymbolName)
                     .font(.system(size: 38, weight: .bold))
-                    .foregroundStyle(game.isDraw ? Color.secondary : Color.yellow)
+                    .foregroundStyle(game.isDraw ? Color.secondary : (visualTheme == .flat ? Color.black : Color.yellow))
                     .scaleEffect(endGameAnimationPulse ? 1.08 : 0.96)
                     .shadow(color: .black.opacity(isDarkMode ? 0.34 : 0.16), radius: 8, x: 0, y: 4)
             }
@@ -553,7 +824,7 @@ struct ContentView: View {
 
             VStack(spacing: 6) {
                 Text(endGameTitle)
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .font(displayFont(size: 34, weight: .bold))
                     .foregroundStyle(primaryText)
                     .multilineTextAlignment(.center)
                     .contentTransition(.numericText())
@@ -575,19 +846,11 @@ struct ContentView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .buttonStyle(.plain)
-            .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, interactive: true)
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(strongStroke, lineWidth: 1)
-            }
+            .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, role: .control, interactive: true)
         }
         .padding(24)
         .frame(maxWidth: 360)
-        .mancalaGlassEffect(tint: storeTint, cornerRadius: 28)
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(quietStroke, lineWidth: 1)
-        }
+        .mancalaGlassEffect(tint: storeTint, cornerRadius: 28, role: .panel, seed: 23)
         .shadow(color: .black.opacity(isDarkMode ? 0.36 : 0.18), radius: 24, x: 0, y: 18)
         .accessibilityElement(children: .contain)
     }
@@ -602,141 +865,204 @@ struct ContentView: View {
 
     private var difficultyPill: some View {
         let title: String
-        let tint: Color
         let accessibilityLabel: String
 
         switch gameMode {
         case .singlePlayer:
             title = difficulty.title
-            tint = difficulty.tint
             accessibilityLabel = "Difficulty: \(difficulty.title)"
         case .zeroPlayer:
             title = "\(zeroPlayerOneDifficulty.title) vs \(zeroPlayerTwoDifficulty.title)"
-            tint = currentAIDifficulty.tint
             accessibilityLabel = "Zero player mode. Player 1 \(zeroPlayerOneDifficulty.title), Player 2 \(zeroPlayerTwoDifficulty.title)"
         case .twoPlayer:
             title = "2 Players"
-            tint = Color.secondary
             accessibilityLabel = "Two player mode"
         case .onlineMultiplayer:
             title = "Online"
-            tint = Color.indigo
             accessibilityLabel = "Online multiplayer mode"
         }
 
-        return Text(title)
-            .font(.caption.weight(.bold))
-            .foregroundStyle(primaryText)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(tint.opacity(isDarkMode ? 0.24 : 0.18))
-            }
-            .overlay {
-                Capsule(style: .continuous)
-                    .stroke(tint.opacity(isDarkMode ? 0.72 : 0.58), lineWidth: 1)
-            }
+        // The design keeps chrome quiet: the mode reads as a small
+        // letterspaced caption under the title, not a bordered pill.
+        return Text(title.uppercased())
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(2.4)
+            .foregroundStyle(secondaryText.opacity(0.9))
             .accessibilityLabel(accessibilityLabel)
     }
 
-    private func header(isPortrait: Bool) -> some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Mancala")
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
-                    .foregroundStyle(primaryText)
-
-                difficultyPill
-            }
+    private func headerIcon(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 19, weight: .medium))
+            .foregroundStyle(primaryText)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
             .playerFacingRotation(tableRotationDegrees)
+    }
 
-            Spacer()
+    private func headerTitle(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 3) {
+            Text("Mancala")
+                .font(displayFont(size: 32, weight: .medium))
+                .foregroundStyle(primaryText)
 
-            if !isPortrait && shouldShowStatusPanel {
-                statusPanel
-                    .frame(maxWidth: isThoughtPanelExpanded ? 360 : 260)
+            difficultyPill
+        }
+        .playerFacingRotation(tableRotationDegrees)
+    }
+
+    private func header(isPortrait: Bool) -> some View {
+        ZStack {
+            // Portrait centers the title in the safe area like the design;
+            // landscape keeps it leading so the status panel can sit centered.
+            if isPortrait {
+                headerTitle(alignment: .center)
+            }
+
+            HStack(alignment: .center, spacing: 2) {
+                if !isPortrait {
+                    headerTitle(alignment: .leading)
+                }
+
+                if shouldShowUndoButton {
+                    Button {
+                        undoLastTurn()
+                    } label: {
+                        headerIcon("arrow.uturn.backward")
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(canUndoTurn ? 1 : 0.35)
+                    .disabled(!canUndoTurn)
+                    .accessibilityLabel("Undo last turn")
+                }
+
+                if gameMode == .zeroPlayer {
+                    Button {
+                        toggleZeroPlayerPlayback()
+                    } label: {
+                        headerIcon(isZeroPlayerPaused ? "play.fill" : "pause.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(isAnimatingMove || game.isGameOver ? 0.35 : 1)
+                    .disabled(isAnimatingMove || game.isGameOver)
+                    .accessibilityLabel(isZeroPlayerPaused ? "Play zero player game" : "Pause zero player game")
+                }
 
                 Spacer()
+
+                if !isPortrait && shouldShowStatusPanel {
+                    statusPanel
+                        .frame(maxWidth: isThoughtPanelExpanded ? 360 : 260)
+
+                    Spacer()
+                }
+
+                #if os(visionOS)
+                if visualTheme == .liquidGlass {
+                    Button {
+                        setSpatialBoard(open: !spatialBoard.isOpen)
+                    } label: {
+                        headerIcon(spatialBoard.isOpen ? "arrow.down.forward.and.arrow.up.backward" : "cube")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(spatialBoard.isOpen ? "Return board to window" : "Place board in your space")
+                }
+                #endif
+
+                Menu {
+                    Button {
+                        isRulesPresented = true
+                    } label: {
+                        Label("Rules", systemImage: "book.closed")
+                    }
+
+                    Button {
+                        requestHint()
+                    } label: {
+                        Label(isHintSearching ? "Finding Hint" : "Hint", systemImage: "lightbulb")
+                    }
+                    .disabled(!canRequestHint)
+
+                    Button {
+                        isGameHistoryPresented = true
+                    } label: {
+                        Label("Game History", systemImage: "clock.arrow.circlepath")
+                    }
+
+                    Button {
+                        isSettingsPresented = true
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+
+                    Button(role: .destructive) {
+                        resetCurrentGame()
+                    } label: {
+                        Label("Reset Game", systemImage: "arrow.counterclockwise")
+                    }
+                    .disabled(isAnimatingMove || gameMode == .onlineMultiplayer)
+                } label: {
+                    headerIcon("gearshape")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("More options")
             }
-
-            if shouldShowUndoButton {
-                Button {
-                    undoLastTurn()
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(primaryText)
-                        .frame(width: 44, height: 44)
-                        .playerFacingRotation(tableRotationDegrees)
-                }
-                .mancalaGlassButtonStyle()
-                .disabled(!canUndoTurn)
-                .accessibilityLabel("Undo last turn")
-            }
-
-            if gameMode == .zeroPlayer {
-                Button {
-                    toggleZeroPlayerPlayback()
-                } label: {
-                    Image(systemName: isZeroPlayerPaused ? "play.fill" : "pause.fill")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(primaryText)
-                        .frame(width: 44, height: 44)
-                        .playerFacingRotation(tableRotationDegrees)
-                }
-                .mancalaGlassButtonStyle()
-                .disabled(isAnimatingMove || game.isGameOver)
-                .accessibilityLabel(isZeroPlayerPaused ? "Play zero player game" : "Pause zero player game")
-            }
-
-            Menu {
-                Button {
-                    isRulesPresented = true
-                } label: {
-                    Label("Rules", systemImage: "book.closed")
-                }
-
-                Button {
-                    requestHint()
-                } label: {
-                    Label(isHintSearching ? "Finding Hint" : "Hint", systemImage: "lightbulb")
-                }
-                .disabled(!canRequestHint)
-
-                Button {
-                    isGameHistoryPresented = true
-                } label: {
-                    Label("Game History", systemImage: "clock.arrow.circlepath")
-                }
-
-                Button {
-                    isSettingsPresented = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-
-                Button(role: .destructive) {
-                    resetCurrentGame()
-                } label: {
-                    Label("Reset Game", systemImage: "arrow.counterclockwise")
-                }
-                .disabled(isAnimatingMove || gameMode == .onlineMultiplayer)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(primaryText)
-                    .frame(width: 44, height: 44)
-                    .playerFacingRotation(tableRotationDegrees)
-            }
-            .mancalaGlassButtonStyle()
-            .accessibilityLabel("More options")
         }
     }
 
     private var settingsSheet: some View {
         NavigationStack {
             Form {
+                Section("Appearance") {
+                    Picker("Theme", selection: $visualTheme) {
+                        ForEach(VisualTheme.allCases) { theme in
+                            Text(theme.title).tag(theme)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(visualTheme == .flat ? "Soft and minimal — pits pressed right into the page, no board." : "A 3D board with several textures to choose from.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    if visualTheme == .liquidGlass {
+                        Picker("Material", selection: $boardMaterialStyle) {
+                            ForEach(BoardMaterialStyle.allCases) { style in
+                                Text(style.title).tag(style)
+                            }
+                        }
+
+                        #if !os(visionOS)
+                        Toggle("Motion Parallax", isOn: $gyroMotionEnabled)
+
+                        Text("Tilts the board's perspective with your device's motion.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        #endif
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Pebble Speed")
+                            Spacer()
+                            Text(String(format: "%.1f×", stoneAnimationSpeed))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(value: $stoneAnimationSpeed, in: 0.5...2.0, step: 0.1) {
+                            Text("Pebble Speed")
+                        } minimumValueLabel: {
+                            Image(systemName: "tortoise")
+                        } maximumValueLabel: {
+                            Image(systemName: "hare")
+                        }
+                    }
+
+                    Text("How quickly pebbles fly between pits.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Players") {
                     Picker("Mode", selection: $gameMode) {
                         Text("2 Players").tag(GameMode.twoPlayer)
@@ -809,12 +1135,20 @@ struct ContentView: View {
                     }
                 }
 
-                if gameMode == .onlineMultiplayer {
-                    Section("Game Center") {
-                        Text(onlineManager.statusMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                Section("Game Center") {
+                    Text(onlineManager.statusMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
+                    Button(onlineManager.isAuthenticated ? "View Achievements" : "Sign In to Game Center") {
+                        if onlineManager.isAuthenticated {
+                            onlineManager.showAchievements()
+                        } else {
+                            onlineManager.authenticateLocalPlayer()
+                        }
+                    }
+
+                    if gameMode == .onlineMultiplayer {
                         Button(onlineManager.isAuthenticated ? "Start Online Match" : "Sign In to Game Center") {
                             if onlineManager.isAuthenticated {
                                 onlineManager.startMatch()
@@ -830,7 +1164,9 @@ struct ContentView: View {
                             }
                         }
                     }
+                }
 
+                if gameMode == .onlineMultiplayer {
                     Section("Display") {
                         Toggle("Show Numbers", isOn: $onlineShowNumberLabels)
 
@@ -1110,13 +1446,13 @@ struct ContentView: View {
             VStack(spacing: 12) {
                 HStack(spacing: 10) {
                     ForEach(Array(game.playerTwoPitIndices.reversed()), id: \.self) { index in
-                        pitButton(index: index, minHeight: 126)
+                        pitButton(index: index, minHeight: 112)
                     }
                 }
 
                 HStack(spacing: 10) {
                     ForEach(game.playerOnePitIndices, id: \.self) { index in
-                        pitButton(index: index, minHeight: 126)
+                        pitButton(index: index, minHeight: 112)
                     }
                 }
             }
@@ -1126,11 +1462,7 @@ struct ContentView: View {
                 .recordCellFrame(id: game.storeIndex(for: .playerOne))
         }
         .padding(14)
-        .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, interactive: true)
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(quietStroke, lineWidth: 1)
-        }
+        .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, role: .board, interactive: true, seed: 40)
     }
 
     private func portraitBoard(pitHeight: CGFloat, storeHeight: CGFloat) -> some View {
@@ -1141,13 +1473,13 @@ struct ContentView: View {
 
             HStack(alignment: .top, spacing: 10) {
                 VStack(spacing: 8) {
-                    ForEach(Array(game.playerTwoPitIndices.reversed()), id: \.self) { index in
+                    ForEach(game.playerOnePitIndices, id: \.self) { index in
                         pitButton(index: index, minHeight: pitHeight)
                     }
                 }
 
                 VStack(spacing: 8) {
-                    ForEach(game.playerOnePitIndices, id: \.self) { index in
+                    ForEach(Array(game.playerTwoPitIndices.reversed()), id: \.self) { index in
                         pitButton(index: index, minHeight: pitHeight)
                     }
                 }
@@ -1158,11 +1490,71 @@ struct ContentView: View {
                 .recordCellFrame(id: game.storeIndex(for: .playerOne))
         }
         .padding(12)
-        .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, interactive: true)
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(quietStroke, lineWidth: 1)
+        .mancalaGlassEffect(tint: boardTint, cornerRadius: 28, role: .board, interactive: true, seed: 41)
+    }
+
+    /// The design's score strip: each player's marker dot with their store
+    /// count beneath it, and the turn text centered between them. When the
+    /// status panel is visible directly below, it already carries the turn
+    /// text, so the center stays empty rather than repeating it.
+    private var scoreRow: some View {
+        HStack(alignment: .top) {
+            scoreMarker(for: .playerOne)
+
+            Spacer()
+
+            if !shouldShowStatusPanel {
+                Text(statusText)
+                    .font(displayFont(size: 22, weight: .regular))
+                    .foregroundStyle(primaryText)
+                    .contentTransition(.numericText())
+                    .multilineTextAlignment(.center)
+                    .frame(height: 30)
+            }
+
+            Spacer()
+
+            scoreMarker(for: .playerTwo)
         }
+        .padding(.horizontal, 34)
+        .playerFacingRotation(tableRotationDegrees)
+    }
+
+    private func scoreMarker(for player: Player) -> some View {
+        let isCurrent = player == game.currentPlayer && !game.isGameOver
+
+        return VStack(spacing: 9) {
+            Circle()
+                .fill(scoreMarkerColor(for: player))
+                .frame(width: 26, height: 26)
+                .overlay {
+                    Circle()
+                        .strokeBorder(scoreMarkerStroke(for: player), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(isDarkMode ? 0.30 : 0.10), radius: 3, x: 0, y: 2)
+                .scaleEffect(isCurrent ? 1.0 : 0.82)
+
+            Text("\(game.storeCount(for: player))")
+                .font(countFont(size: 24, weight: .regular))
+                .foregroundStyle(primaryText)
+                .contentTransition(.numericText())
+        }
+        .animation(.easeInOut(duration: 0.22), value: isCurrent)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(displayName(for: player)): \(game.storeCount(for: player)) stones")
+    }
+
+    private func scoreMarkerColor(for player: Player) -> Color {
+        player == .playerOne
+            ? Color(red: 0.93, green: 0.90, blue: 0.84)
+            : Color(red: 0.30, green: 0.29, blue: 0.27)
+    }
+
+    private func scoreMarkerStroke(for player: Player) -> Color {
+        if player == .playerOne {
+            return .black.opacity(isDarkMode ? 0 : 0.12)
+        }
+        return .white.opacity(isDarkMode ? 0.28 : 0)
     }
 
     private var statusPanel: some View {
@@ -1174,7 +1566,7 @@ struct ContentView: View {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     Text(statusText)
-                        .font(.headline.weight(.semibold))
+                        .font(displayFont(size: 17, weight: .semibold))
                         .contentTransition(.numericText())
 
                     if isAIMovePending {
@@ -1223,11 +1615,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .foregroundStyle(primaryText)
         .multilineTextAlignment(.center)
-        .mancalaGlassEffect(tint: storeTint, cornerRadius: 18)
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(quietStroke, lineWidth: 1)
-        }
+        .mancalaGlassEffect(tint: storeTint, cornerRadius: 18, role: .panel)
         .accessibilityHint("Tap to show or hide AI thinking details")
     }
 
@@ -1254,43 +1642,69 @@ struct ContentView: View {
                 await animateMove(from: index)
             }
         } label: {
-            VStack(spacing: contentSpacing) {
-                stoneCluster(count: game.pits[index])
-                    .frame(height: clusterHeight)
+            Group {
+                if visualTheme == .liquidGlass {
+                    stoneCluster(count: game.pits[index])
+                        .frame(height: clusterHeight)
+                        .frame(maxHeight: .infinity)
+                        .overlay(alignment: .bottom) {
+                            if shouldShowNumberLabels {
+                                Text("\(game.pits[index])")
+                                    .font(countFont(size: countSize * 0.78))
+                                    .foregroundStyle(secondaryText)
+                                    .contentTransition(.numericText())
+                            }
+                        }
+                } else {
+                    VStack(spacing: contentSpacing) {
+                        stoneCluster(count: game.pits[index])
+                            .frame(height: clusterHeight)
 
-                if shouldShowNumberLabels {
-                    Text("\(game.pits[index])")
-                        .font(.system(size: countSize, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(primaryText)
-                        .contentTransition(.numericText())
+                        if shouldShowNumberLabels {
+                            Text("\(game.pits[index])")
+                                .font(countFont(size: countSize))
+                                .foregroundStyle(primaryText)
+                                .contentTransition(.numericText())
+                        }
+                    }
                 }
             }
             .playerFacingRotation(tableRotationDegrees)
             .padding(.vertical, verticalInset)
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: minHeight)
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .mancalaGlassEffect(tint: isPlayable ? playableTint : pitTint, cornerRadius: 20, interactive: isPlayable)
-            .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(isPlayable ? strongStroke : quietStroke, lineWidth: isPlayable ? 1.5 : 1)
-            }
+            .contentShape(pitHitShape)
+            .mancalaGlassEffect(tint: isPlayable ? playableTint : pitTint, cornerRadius: 20, role: .pit, interactive: isPlayable, seed: index)
             .overlay {
                 if isHinted {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.yellow.opacity(isDarkMode ? 0.94 : 0.88), lineWidth: 3)
-                        .shadow(color: Color.yellow.opacity(0.82), radius: 12, x: 0, y: 0)
-                        .shadow(color: Color.orange.opacity(0.42), radius: 22, x: 0, y: 0)
-                        .transition(.opacity.combined(with: .scale(scale: 1.03)))
-                        .allowsHitTesting(false)
+                    if visualTheme == .flat {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(Color(red: 0.73, green: 0.47, blue: 0.10).opacity(0.9), lineWidth: 2.5)
+                            .padding(-4)
+                            .transition(.opacity.combined(with: .scale(scale: 1.03)))
+                            .allowsHitTesting(false)
+                    } else {
+                        Ellipse()
+                            .stroke(Color.yellow.opacity(isDarkMode ? 0.94 : 0.88), lineWidth: 3)
+                            .shadow(color: Color.yellow.opacity(0.82), radius: 12, x: 0, y: 0)
+                            .shadow(color: Color.orange.opacity(0.42), radius: 22, x: 0, y: 0)
+                            .transition(.opacity.combined(with: .scale(scale: 1.03)))
+                            .allowsHitTesting(false)
+                    }
                 }
             }
         }
         .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .contentShape(pitHitShape)
         .disabled(!isPlayable)
         .recordCellFrame(id: index)
         .accessibilityLabel("\(displayName(for: owner)) pit with \(game.pits[index]) stones")
+    }
+
+    private var pitHitShape: AnyShape {
+        visualTheme == .flat
+            ? AnyShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            : AnyShape(Ellipse())
     }
 
     private var canRequestHint: Bool {
@@ -1610,6 +2024,12 @@ struct ContentView: View {
         if let data = try? JSONEncoder().encode(history) {
             completedGameHistoryData = data
             hasRecordedCurrentCompletedGame = true
+            GameCenterAchievements.reportCompletedGame(
+                game,
+                gameMode: gameMode,
+                difficulty: difficulty,
+                localPlayerSide: onlineManager.localPlayerSide
+            )
         }
     }
 
@@ -1697,75 +2117,99 @@ struct ContentView: View {
     private func storeView(owner: Player, compact: Bool) -> some View {
         let isCurrent = owner == game.currentPlayer && !game.isGameOver
         let tint = isCurrent ? currentStoreTint : storeTint
-        let stroke = isCurrent ? Color.green.opacity(isDarkMode ? 0.60 : 0.54) : quietStroke
 
         if compact {
-            HStack(spacing: 12) {
-                stoneCluster(count: game.storeCount(for: owner))
-                    .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 38)
-
-                if shouldShowNumberLabels {
-                    Text("\(game.storeCount(for: owner))")
-                        .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(primaryText)
-                        .frame(width: 48)
-                        .contentTransition(.numericText())
+            stoneCluster(count: game.storeCount(for: owner))
+                .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 38)
+                .overlay(alignment: .trailing) {
+                    if shouldShowNumberLabels {
+                        Text("\(game.storeCount(for: owner))")
+                            .font(countFont(size: 26))
+                            .foregroundStyle(visualTheme == .liquidGlass ? secondaryText : primaryText)
+                            .contentTransition(.numericText())
+                    }
                 }
-            }
-            .playerFacingRotation(tableRotationDegrees)
-            .padding(.horizontal, 14)
-            .mancalaGlassEffect(tint: tint, cornerRadius: 20)
-            .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(stroke, lineWidth: isCurrent ? 1.5 : 1)
-            }
+                .playerFacingRotation(tableRotationDegrees)
+                .padding(.horizontal, 22)
+                .mancalaGlassEffect(tint: tint, cornerRadius: 20, role: .store, interactive: isCurrent, seed: game.storeIndex(for: owner))
         } else {
-            VStack(spacing: 7) {
-                stoneCluster(count: game.storeCount(for: owner))
-                    .frame(height: 48)
-
-                if shouldShowNumberLabels {
-                    Text("\(game.storeCount(for: owner))")
-                        .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(primaryText)
-                        .contentTransition(.numericText())
+            stoneCluster(count: game.storeCount(for: owner))
+                .frame(height: 48)
+                .frame(maxHeight: .infinity)
+                .overlay(alignment: .bottom) {
+                    if shouldShowNumberLabels {
+                        Text("\(game.storeCount(for: owner))")
+                            .font(countFont(size: 28))
+                            .foregroundStyle(visualTheme == .liquidGlass ? secondaryText : primaryText)
+                            .contentTransition(.numericText())
+                            .padding(.bottom, 4)
+                    }
                 }
-            }
-            .playerFacingRotation(tableRotationDegrees)
-            .frame(minHeight: 148)
-            .padding(10)
-            .mancalaGlassEffect(tint: tint, cornerRadius: 24)
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(stroke, lineWidth: isCurrent ? 1.5 : 1)
-            }
+                .playerFacingRotation(tableRotationDegrees)
+                .frame(minHeight: 148)
+                .padding(10)
+                .mancalaGlassEffect(tint: tint, cornerRadius: 24, role: .store, interactive: isCurrent, seed: game.storeIndex(for: owner))
         }
     }
 
-    private func stoneCluster(count: Int) -> some View {
-        ZStack {
-            ForEach(0..<min(count, 18), id: \.self) { index in
-                Circle()
-                    .fill(stoneColor(for: index).gradient)
-                    .frame(width: 11, height: 11)
-                    .offset(stoneOffset(for: index))
-                    .shadow(color: isDarkMode ? .black.opacity(0.30) : .black.opacity(0.18), radius: 1.5, x: 0, y: 1)
-                    .transition(.scale.combined(with: .opacity))
+    private func stoneView(colorIndex: Int, diameter: CGFloat) -> some View {
+        Circle()
+            // Flat stones are plain matte dots; the glass theme keeps a
+            // gradient sheen.
+            .fill(visualTheme == .flat
+                ? AnyShapeStyle(stoneColor(for: colorIndex))
+                : AnyShapeStyle(stoneColor(for: colorIndex).gradient))
+            .frame(width: diameter, height: diameter)
+            .overlay {
+                if visualTheme == .liquidGlass {
+                    Circle()
+                        .fill(Color.white.opacity(0.85))
+                        .frame(width: diameter * 0.28, height: diameter * 0.28)
+                        .offset(x: -diameter * 0.20, y: -diameter * 0.22)
+                        .blur(radius: 0.4)
+                }
             }
+    }
+
+    private func stoneCluster(count: Int) -> some View {
+        // Bounds of the stones actually shown (offsets plus stone radius and a
+        // hair of margin). The cluster is recentered on those bounds and scaled
+        // down when its frame is smaller, so stones never spill past the well
+        // or store that contains them — while small clusters keep full size.
+        let shown = min(count, 18)
+        let reach: CGFloat = 6.5
+        var minX: CGFloat = 0, maxX: CGFloat = 0, minY: CGFloat = 0, maxY: CGFloat = 0
+        for index in 0..<shown {
+            let offset = stoneOffset(for: index)
+            minX = min(minX, offset.width - reach)
+            maxX = max(maxX, offset.width + reach)
+            minY = min(minY, offset.height - reach)
+            maxY = max(maxY, offset.height + reach)
+        }
+        let bounds = CGRect(x: minX, y: minY, width: max(maxX - minX, 1), height: max(maxY - minY, 1))
+
+        return GeometryReader { proxy in
+            let scale = min(1, proxy.size.width / bounds.width, proxy.size.height / bounds.height)
+
+            ZStack {
+                ForEach(0..<shown, id: \.self) { index in
+                    stoneView(colorIndex: index, diameter: 11)
+                        .offset(stoneOffset(for: index))
+                        .shadow(color: visualTheme == .flat ? .clear : (isDarkMode ? .black.opacity(0.30) : .black.opacity(0.18)), radius: 1.5, x: 0, y: 1)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .scaleEffect(scale)
+            .offset(x: -bounds.midX * scale, y: -bounds.midY * scale)
+            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.spring(response: 0.32, dampingFraction: 0.72), value: count)
     }
 
     private func animatedStone(_ stone: FlyingStone) -> some View {
-        Circle()
-            .fill(stoneColor(for: stone.colorIndex).gradient)
-            .frame(width: 18, height: 18)
+        stoneView(colorIndex: stone.colorIndex, diameter: 18)
             .shadow(color: isDarkMode ? .black.opacity(0.42) : .black.opacity(0.24), radius: 5, x: 0, y: 3)
-            .overlay {
-                Circle()
-                    .stroke(Color.white.opacity(isDarkMode ? 0.32 : 0.46), lineWidth: 1)
-            }
             .position(stone.position)
             .allowsHitTesting(false)
     }
@@ -1777,11 +2221,18 @@ struct ContentView: View {
         recordUndoSnapshotIfNeeded()
         hintedPitIndex = nil
         let movingPlayer = game.currentPlayer
+        let moveAchievementResult = moveAchievementResult(for: selectedIndex, movingPlayer: movingPlayer)
         let path = game.sowingPath(from: selectedIndex)
-        guard let sourceFrame = cellFrames[selectedIndex], !path.isEmpty else {
+        let canAnimateVisually = is3DBoardActive || cellFrames[selectedIndex] != nil
+        guard canAnimateVisually, !path.isEmpty else {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 game.playPit(at: selectedIndex)
             }
+            GameCenterAchievements.reportMove(
+                moveAchievementResult,
+                gameMode: gameMode,
+                localPlayerSide: onlineManager.localPlayerSide
+            )
             recordCompletedGameIfNeeded()
             persistStableGameState()
             handleOnlineMoveIfNeeded(from: selectedIndex, movingPlayer: movingPlayer)
@@ -1791,29 +2242,47 @@ struct ContentView: View {
 
         isAnimatingMove = true
         game.beginAnimatedMove(from: selectedIndex)
-        var currentPoint = sourceFrame.center
 
-        for (step, destination) in path.enumerated() {
-            guard let destinationFrame = cellFrames[destination] else { continue }
-            let destinationPoint = destinationFrame.center
-
-            flyingStone = FlyingStone(position: currentPoint, colorIndex: step)
-            try? await Task.sleep(for: .milliseconds(35))
-
-            withAnimation(.spring(response: 0.26, dampingFraction: 0.72)) {
-                flyingStone?.position = destinationPoint
+        if is3DBoardActive {
+            // The whole picked-up pile travels together: lift it out of the
+            // source pit as a clump, glide it over each well on the path, and
+            // release one stone into each as it passes.
+            activeBoardScene?.animationSpeed = stoneAnimationSpeed
+            await activeBoardScene?.liftSowingCluster(from: selectedIndex, count: path.count)
+            for destination in path {
+                await activeBoardScene?.hopSowingCluster(to: destination)
+                await activeBoardScene?.dropSowingStone(at: destination)
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
+                    game.depositStone(at: destination)
+                    hapticTrigger += 1
+                }
+                try? await Task.sleep(for: .seconds(0.03 / stoneAnimationSpeed))
             }
+        } else {
+            var currentPoint = cellFrames[selectedIndex]?.center ?? .zero
 
-            try? await Task.sleep(for: .milliseconds(150))
+            for (step, destination) in path.enumerated() {
+                guard let destinationFrame = cellFrames[destination] else { continue }
+                let destinationPoint = destinationFrame.center
 
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
-                game.depositStone(at: destination)
-                hapticTrigger += 1
-                flyingStone = nil
+                flyingStone = FlyingStone(position: currentPoint, colorIndex: step)
+                try? await Task.sleep(for: .seconds(0.035 / stoneAnimationSpeed))
+
+                withAnimation(.spring(response: 0.26 / stoneAnimationSpeed, dampingFraction: 0.72)) {
+                    flyingStone?.position = destinationPoint
+                }
+
+                try? await Task.sleep(for: .seconds(0.15 / stoneAnimationSpeed))
+
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
+                    game.depositStone(at: destination)
+                    hapticTrigger += 1
+                    flyingStone = nil
+                }
+
+                currentPoint = destinationPoint
+                try? await Task.sleep(for: .seconds(0.03 / stoneAnimationSpeed))
             }
-
-            currentPoint = destinationPoint
-            try? await Task.sleep(for: .milliseconds(30))
         }
 
         let lastIndex = path[path.count - 1]
@@ -1823,11 +2292,39 @@ struct ContentView: View {
             game.finishAnimatedMove(lastIndex: lastIndex, captureAlreadyApplied: animatedCapture)
             isAnimatingMove = false
         }
+        GameCenterAchievements.reportMove(
+            moveAchievementResult,
+            gameMode: gameMode,
+            localPlayerSide: onlineManager.localPlayerSide
+        )
         recordCompletedGameIfNeeded()
         persistStableGameState()
         handleOnlineMoveIfNeeded(from: selectedIndex, movingPlayer: movingPlayer)
 
         await runAIMoveIfNeeded()
+    }
+
+    private func moveAchievementResult(for selectedIndex: Int, movingPlayer: Player) -> MancalaMoveAchievementResult {
+        var simulatedGame = game
+        let path = simulatedGame.sowingPath(from: selectedIndex)
+        guard let lastIndex = path.last else {
+            return MancalaMoveAchievementResult(movingPlayer: movingPlayer, capturedStones: 0, earnedExtraTurn: false)
+        }
+
+        simulatedGame.beginAnimatedMove(from: selectedIndex)
+        for index in path {
+            simulatedGame.depositStone(at: index)
+        }
+
+        let capturedStones = simulatedGame.captureMove(afterLandingAt: lastIndex)?.capturedStones ?? 0
+        simulatedGame.finishAnimatedMove(lastIndex: lastIndex)
+        let earnedExtraTurn = !simulatedGame.isGameOver && simulatedGame.currentPlayer == movingPlayer
+
+        return MancalaMoveAchievementResult(
+            movingPlayer: movingPlayer,
+            capturedStones: capturedStones,
+            earnedExtraTurn: earnedExtraTurn
+        )
     }
 
     private func handleOnlineMoveIfNeeded(from selectedIndex: Int, movingPlayer: Player) {
@@ -1967,26 +2464,71 @@ struct ContentView: View {
             return await searchTask.value ?? legalPits.first
         }
 
-        do {
-            appendAIThought("Requesting on-device model move.")
-            let session = LanguageModelSession()
-            let response = try await session.respond(
-                to: aiPrompt(for: player, difficulty: difficulty, legalPits: legalPits),
-                generating: AIMancalaMove.self
-            )
-            let selectedPit = response.content.pitIndex
+        if #available(iOS 27.0, *), FoundationModelAIMoveProvider.isAvailable {
+            do {
+                appendAIThought("Requesting on-device model move.")
+                let selectedPit = try await FoundationModelAIMoveProvider.choosePit(
+                    prompt: aiPrompt(for: player, difficulty: difficulty, legalPits: legalPits)
+                )
 
-            if legalPits.contains(selectedPit) {
-                return selectedPit
+                if legalPits.contains(selectedPit) {
+                    return selectedPit
+                }
+
+                appendAIThought("Model returned illegal pit \(selectedPit); using heuristic fallback.")
+            } catch {
+                appendAIThought("Model request failed; using heuristic fallback.")
             }
-
-            appendAIThought("Model returned illegal pit \(selectedPit); using fallback.")
-        } catch {
-            appendAIThought("Model request failed; using fallback.")
-            return legalPits.first
+        } else {
+            appendAIThought("On-device model is unavailable; using heuristic move selection.")
         }
 
-        return legalPits.first
+        return heuristicAIPit(for: player, difficulty: difficulty, legalPits: legalPits)
+    }
+
+    private func heuristicAIPit(for player: Player, difficulty: AIDifficulty, legalPits: [Int]) -> Int? {
+        let rankedMoves = legalPits.map { pitIndex in
+            var simulatedGame = game
+            let startingStore = simulatedGame.storeCount(for: player)
+            let opponentStartingStore = simulatedGame.storeCount(for: player.opponent)
+            let path = simulatedGame.sowingPath(from: pitIndex)
+            let lastIndex = path.last
+            let capturedStones = lastIndex.flatMap { simulatedGame.captureMove(afterLandingAt: $0)?.capturedStones } ?? 0
+            simulatedGame.playPit(at: pitIndex)
+
+            let storeGain = simulatedGame.storeCount(for: player) - startingStore
+            let opponentStoreGain = simulatedGame.storeCount(for: player.opponent) - opponentStartingStore
+            let extraTurnBonus = simulatedGame.currentPlayer == player && !simulatedGame.isGameOver ? 18 : 0
+            let winBonus = simulatedGame.winner == player ? 1_000 : 0
+            let drawPenalty = simulatedGame.isDraw ? 8 : 0
+            let lossPenalty = simulatedGame.winner == player.opponent ? 1_000 : 0
+            let captureBonus = capturedStones * 5
+            let storeAdvantage = simulatedGame.storeCount(for: player) - simulatedGame.storeCount(for: player.opponent)
+            let sideBalance = player == .playerOne
+                ? simulatedGame.pits[0...5].reduce(0, +) - simulatedGame.pits[7...12].reduce(0, +)
+                : simulatedGame.pits[7...12].reduce(0, +) - simulatedGame.pits[0...5].reduce(0, +)
+
+            let score: Int
+            switch difficulty {
+            case .easy:
+                score = storeGain + extraTurnBonus / 3 + captureBonus / 4
+            case .medium:
+                score = storeGain * 4 + extraTurnBonus + captureBonus + storeAdvantage * 2
+            case .hard:
+                score = storeGain * 6 + extraTurnBonus + captureBonus + storeAdvantage * 4 + sideBalance - opponentStoreGain * 3 + winBonus - drawPenalty - lossPenalty
+            case .impossible:
+                score = storeGain * 8 + extraTurnBonus + captureBonus + storeAdvantage * 5 + sideBalance + winBonus - drawPenalty - lossPenalty
+            }
+
+            return (pitIndex: pitIndex, score: score)
+        }
+
+        return rankedMoves.max { lhs, rhs in
+            if lhs.score == rhs.score {
+                return lhs.pitIndex < rhs.pitIndex
+            }
+            return lhs.score < rhs.score
+        }?.pitIndex
     }
 
     private func aiPrompt(for player: Player, difficulty: AIDifficulty, legalPits: [Int]) -> String {
@@ -2005,8 +2547,28 @@ struct ContentView: View {
 
     @MainActor
     private func animateCaptureIfNeeded(lastIndex: Int) async -> Bool {
-        guard let capture = game.captureMove(afterLandingAt: lastIndex),
-              let storeFrame = cellFrames[capture.storeIndex] else {
+        guard let capture = game.captureMove(afterLandingAt: lastIndex) else {
+            return false
+        }
+
+        if is3DBoardActive {
+            activeBoardScene?.animationSpeed = stoneAnimationSpeed
+            let capturedSources = [capture.landingIndex] + Array(repeating: capture.oppositeIndex, count: capture.capturedStones)
+            for sourceIndex in capturedSources {
+                withAnimation(.spring(response: 0.18, dampingFraction: 0.80)) {
+                    game.removeStone(at: sourceIndex)
+                }
+                await activeBoardScene?.flyStone(from: sourceIndex, to: capture.storeIndex)
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
+                    game.depositStone(at: capture.storeIndex)
+                    hapticTrigger += 1
+                }
+                try? await Task.sleep(for: .seconds(0.012 / stoneAnimationSpeed))
+            }
+            return true
+        }
+
+        guard let storeFrame = cellFrames[capture.storeIndex] else {
             return false
         }
 
@@ -2025,13 +2587,13 @@ struct ContentView: View {
             }
 
             flyingStone = FlyingStone(position: sourcePoint, colorIndex: step + 2)
-            try? await Task.sleep(for: .milliseconds(20))
+            try? await Task.sleep(for: .seconds(0.02 / stoneAnimationSpeed))
 
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) {
+            withAnimation(.spring(response: 0.22 / stoneAnimationSpeed, dampingFraction: 0.72)) {
                 flyingStone?.position = storePoint
             }
 
-            try? await Task.sleep(for: .milliseconds(95))
+            try? await Task.sleep(for: .seconds(0.095 / stoneAnimationSpeed))
 
             withAnimation(.spring(response: 0.24, dampingFraction: 0.76)) {
                 game.depositStone(at: capture.storeIndex)
@@ -2039,7 +2601,7 @@ struct ContentView: View {
                 flyingStone = nil
             }
 
-            try? await Task.sleep(for: .milliseconds(12))
+            try? await Task.sleep(for: .seconds(0.012 / stoneAnimationSpeed))
         }
 
         return true
@@ -2050,6 +2612,18 @@ struct ContentView: View {
     }
 
     private func stoneColor(for index: Int) -> Color {
+        if visualTheme == .flat {
+            // Alternating charcoal and ochre dots, matching the soft theme's
+            // two-tone stone palette.
+            let flatStones = [
+                Color(red: 0.25, green: 0.26, blue: 0.27),
+                Color(red: 0.73, green: 0.47, blue: 0.10),
+                Color(red: 0.31, green: 0.32, blue: 0.33),
+                Color(red: 0.64, green: 0.40, blue: 0.08)
+            ]
+            return flatStones[index % flatStones.count]
+        }
+
         let colors = [
             Color(red: 0.13, green: 0.42, blue: 0.92),
             Color(red: 0.95, green: 0.55, blue: 0.16),
@@ -2072,26 +2646,369 @@ struct ContentView: View {
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func mancalaGlassEffect(tint: Color, cornerRadius: CGFloat, interactive: Bool = false) -> some View {
-        #if os(visionOS)
-        self.background {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(tint)
+/// The visible side wall of an extruded rounded-rect slab: the band between the
+/// near edge of the top face and that same edge pushed down by `depth`. Corner
+/// curvature is sampled so the wall silhouette wraps around the rounded corners.
+private enum MancalaSurfaceRole {
+    case board
+    case pit
+    case store
+    case panel
+    case control
+}
+
+private struct MancalaSurfaceModifier: ViewModifier {
+    @Environment(\.mancalaVisualTheme) private var visualTheme
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.mancalaBoardFlipped) private var isFlipped
+
+    let role: MancalaSurfaceRole
+    let tint: Color
+    let cornerRadius: CGFloat
+    let interactive: Bool
+    let seed: Int
+
+    private var isDark: Bool {
+        colorScheme == .dark
+    }
+
+    private var surfaceShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    }
+
+    func body(content: Content) -> some View {
+        if visualTheme == .flat {
+            flatSurface(content)
+        } else {
+            glassSurface(content)
         }
-        #else
-        self.glassEffect(.regular.tint(tint).interactive(interactive), in: .rect(cornerRadius: cornerRadius))
-        #endif
+    }
+
+    // MARK: Flat (soft indents)
+
+    /// Interior tone of a pressed-in well: a touch brighter than the page in
+    /// light mode (the dish catches light), a touch deeper in dark mode.
+    private var flatWellTone: Color {
+        isDark
+            ? Color(red: 0.105, green: 0.097, blue: 0.085)
+            : Color(red: 0.965, green: 0.953, blue: 0.928)
+    }
+
+    /// Raised elements (panels, controls) sit just proud of the page in the
+    /// same near-page tone.
+    private var flatRaisedTone: Color {
+        isDark
+            ? Color(red: 0.155, green: 0.145, blue: 0.128)
+            : Color(red: 0.962, green: 0.948, blue: 0.920)
+    }
+
+    /// Flat pits are soft rounded rectangles (stores stay capsules), matching
+    /// the pressed-into-the-page look without the oval silhouette.
+    private var flatWellShape: AnyShape {
+        role == .pit
+            ? AnyShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            : AnyShape(Capsule(style: .continuous))
+    }
+
+    /// Inner-shadow tone of a flat well. Wells the current player can use
+    /// deepen and warm toward umber instead of gaining a hard outline, so the
+    /// turn reads as a change in lighting rather than a drawn border.
+    private var flatWellShadowColor: Color {
+        if interactive {
+            // In dark mode the well tone is near-black, so a warm rim reads as
+            // a faint glow rather than a shadow — keep it gentle.
+            return isDark
+                ? Color(red: 0.80, green: 0.52, blue: 0.18).opacity(0.30)
+                : Color(red: 0.42, green: 0.27, blue: 0.07).opacity(0.40)
+        }
+        return Color.black.opacity(isDark ? 0.60 : 0.15)
+    }
+
+    /// No board slab at all: pits and stores are indents pressed straight
+    /// into the page background. Shading assumes light from above — a soft
+    /// dark inner shadow along the top rim and a bright catch along the
+    /// bottom rim — and flips with the table.
+    private func flatWell(_ content: Content) -> some View {
+        let lightDirection: CGFloat = isFlipped ? -1 : 1
+
+        return content
+            .background {
+                ZStack {
+                    flatWellShape
+                        .fill(flatWellTone)
+
+                    flatWellShape
+                        .stroke(flatWellShadowColor, lineWidth: interactive ? 7 : 6)
+                        .blur(radius: 5)
+                        .offset(y: 4 * lightDirection)
+                        .mask(flatWellShape)
+
+                    flatWellShape
+                        .stroke(Color.white.opacity(isDark ? 0.06 : 0.90), lineWidth: 5)
+                        .blur(radius: 4)
+                        .offset(y: -3 * lightDirection)
+                        .mask(flatWellShape)
+                }
+                .compositingGroup()
+                .shadow(color: Color.white.opacity(isDark ? 0 : 0.7), radius: 1, x: 0, y: 1.5 * lightDirection)
+                .allowsHitTesting(false)
+            }
+    }
+
+    private func flatRaised(_ content: Content) -> some View {
+        content
+            .background {
+                surfaceShape
+                    .fill(flatRaisedTone)
+                    .shadow(color: .black.opacity(isDark ? 0.45 : 0.10), radius: 9, x: 0, y: 5)
+                    .shadow(color: .white.opacity(isDark ? 0.03 : 0.85), radius: 6, x: 0, y: -3)
+                    .allowsHitTesting(false)
+            }
     }
 
     @ViewBuilder
-    func mancalaGlassButtonStyle() -> some View {
+    private func flatSurface(_ content: Content) -> some View {
+        switch role {
+        case .board:
+            content
+        case .pit, .store:
+            flatWell(content)
+        case .panel, .control:
+            flatRaised(content)
+        }
+    }
+
+    // MARK: Liquid glass
+
+    private var isRecessed: Bool {
+        role == .pit || role == .store
+    }
+
+    /// Pits are oval wells, stores are oblong troughs — both carved into the
+    /// slab rather than sitting on it, so they render as shaded depressions in
+    /// the board surface instead of separate glass elements.
+    private var wellShape: AnyShape {
+        role == .pit ? AnyShape(Ellipse()) : AnyShape(Capsule(style: .continuous))
+    }
+
+    private var accent: Color? {
+        guard interactive else { return nil }
+        switch role {
+        case .pit:
+            return isDark ? .cyan : .blue
+        case .store:
+            return .green
+        case .board, .panel, .control:
+            return nil
+        }
+    }
+
+    private var nearEdge: UnitPoint {
+        isFlipped ? .top : .bottom
+    }
+
+    private var farEdge: UnitPoint {
+        isFlipped ? .bottom : .top
+    }
+
+    private var rimGradient: LinearGradient {
+        LinearGradient(
+            colors: role == .board
+                ? [Color.white.opacity(isDark ? 0.45 : 0.90), Color.white.opacity(isDark ? 0.30 : 0.60)]
+                : [Color.white.opacity(isDark ? 0.40 : 0.75), Color.black.opacity(isDark ? 0.28 : 0.09)],
+            startPoint: farEdge,
+            endPoint: nearEdge
+        )
+    }
+
+    /// Real slab thickness: a copy of the board face offset toward the near
+    /// edge, drawn behind it inside the board's 3D tilt so it foreshortens
+    /// with the perspective and reads as the front edge of one solid block.
+    /// A blurred ellipse grounds the block with a contact shadow.
+    private var slabEdge: some View {
+        let thickness: CGFloat = 24
+
+        return ZStack {
+            Ellipse()
+                .fill(Color.black.opacity(isDark ? 0.50 : 0.26))
+                .blur(radius: 22)
+                .frame(height: 48)
+                .padding(.horizontal, 4)
+                .frame(maxHeight: .infinity, alignment: isFlipped ? .top : .bottom)
+                .offset(y: isFlipped ? -(thickness + 18) : thickness + 18)
+
+            ZStack {
+                surfaceShape
+                    .fill(
+                        LinearGradient(
+                            colors: isDark
+                                ? [Color.white.opacity(0.14), Color.white.opacity(0.05)]
+                                : [Color(red: 0.86, green: 0.86, blue: 0.88), Color(red: 0.73, green: 0.73, blue: 0.76)],
+                            startPoint: farEdge,
+                            endPoint: nearEdge
+                        )
+                    )
+
+                surfaceShape
+                    .fill(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.black.opacity(isDark ? 0.40 : 0.16), location: 0),
+                                .init(color: .clear, location: 0.12),
+                                .init(color: .clear, location: 0.88),
+                                .init(color: Color.black.opacity(isDark ? 0.40 : 0.16), location: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+            }
+            .offset(y: isFlipped ? -thickness : thickness)
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// Shading that makes a well read as a smooth concave depression in the
+    /// slab: the far wall falls into shadow, ambient occlusion hugs the whole
+    /// rim, and light pools on the floor toward the near edge. Everything is
+    /// blurred and clipped to the well so there is no hard boundary line.
+    private var wellInterior: some View {
+        ZStack {
+            wellShape
+                .fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color.black.opacity(isDark ? 0.38 : 0.17), location: 0),
+                            .init(color: Color.black.opacity(isDark ? 0.16 : 0.06), location: 0.42),
+                            .init(color: Color.white.opacity(isDark ? 0.05 : 0.28), location: 1)
+                        ],
+                        startPoint: farEdge,
+                        endPoint: nearEdge
+                    )
+                )
+
+            wellShape
+                .stroke(Color.black.opacity(isDark ? 0.40 : 0.15), lineWidth: 10)
+                .blur(radius: 8)
+
+            wellShape
+                .stroke(Color.black.opacity(isDark ? 0.30 : 0.13), lineWidth: 6)
+                .blur(radius: 5)
+                .offset(y: isFlipped ? -5 : 5)
+
+            wellShape
+                .fill(
+                    EllipticalGradient(
+                        colors: [Color.white.opacity(isDark ? 0.10 : 0.42), .clear],
+                        center: UnitPoint(x: 0.5, y: isFlipped ? 0.30 : 0.70),
+                        startRadiusFraction: 0,
+                        endRadiusFraction: 0.55
+                    )
+                )
+
+            if let accent {
+                wellShape
+                    .fill(
+                        EllipticalGradient(
+                            colors: [accent.opacity(isDark ? 0.26 : 0.13), .clear],
+                            center: UnitPoint(x: 0.5, y: isFlipped ? 0.38 : 0.62),
+                            startRadiusFraction: 0,
+                            endRadiusFraction: 0.52
+                        )
+                    )
+                    .blur(radius: 5)
+            }
+        }
+        .clipShape(wellShape)
+        .allowsHitTesting(false)
+    }
+
+    /// A depression carved into the board: no material of its own, just
+    /// concave shading plus a soft light catch on the board surface below the
+    /// near rim.
+    private func recessedSurface(_ content: Content) -> some View {
+        content
+            .background {
+                ZStack {
+                    wellShape
+                        .stroke(Color.white.opacity(isDark ? 0.14 : 0.65), lineWidth: 1.6)
+                        .blur(radius: 1.2)
+                        .offset(y: isFlipped ? -1.5 : 1.5)
+
+                    wellInterior
+                }
+                .allowsHitTesting(false)
+            }
+    }
+
+    private func raisedSurface(_ content: Content) -> some View {
+        glassBase(content)
+            .overlay {
+                surfaceShape
+                    .strokeBorder(rimGradient, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .background {
+                if role == .board {
+                    slabEdge
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func glassSurface(_ content: Content) -> some View {
+        if isRecessed {
+            recessedSurface(content)
+        } else {
+            raisedSurface(content)
+        }
+    }
+
+    /// The board slab deliberately avoids `glassEffect`: on real hardware the
+    /// system renders it with live lensing and near-full transparency, which
+    /// washes the frosted look out against bright backgrounds (the simulator
+    /// only approximates it, so the two disagree). Frosted glass is opaque
+    /// enough that a material plus milky tint renders it faithfully — and
+    /// identically — everywhere. Panels and controls keep the native effect.
+    @ViewBuilder
+    private func glassBase(_ content: Content) -> some View {
         #if os(visionOS)
-        self.buttonStyle(.bordered)
+        content.background {
+            surfaceShape.fill(tint)
+        }
         #else
-        self.buttonStyle(.glass)
+        if role == .board {
+            content.background {
+                surfaceShape
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        surfaceShape.fill(tint)
+                    }
+            }
+        } else if #available(iOS 27.0, *) {
+            content.glassEffect(.regular.tint(tint), in: .rect(cornerRadius: cornerRadius))
+        } else {
+            content.background {
+                surfaceShape
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        surfaceShape.fill(tint)
+                    }
+            }
+        }
         #endif
+    }
+}
+
+private extension View {
+    func mancalaGlassEffect(
+        tint: Color,
+        cornerRadius: CGFloat,
+        role: MancalaSurfaceRole = .panel,
+        interactive: Bool = false,
+        seed: Int = 0
+    ) -> some View {
+        modifier(MancalaSurfaceModifier(role: role, tint: tint, cornerRadius: cornerRadius, interactive: interactive, seed: seed))
     }
 
     @ViewBuilder
@@ -2119,6 +3036,12 @@ private extension View {
     }
 }
 
-#Preview {
-    ContentView()
+#Preview("Liquid Glass") {
+    UserDefaults.standard.set(VisualTheme.liquidGlass.rawValue, forKey: "visualTheme")
+    return ContentView()
+}
+
+#Preview("Flat") {
+    UserDefaults.standard.set(VisualTheme.flat.rawValue, forKey: "visualTheme")
+    return ContentView()
 }

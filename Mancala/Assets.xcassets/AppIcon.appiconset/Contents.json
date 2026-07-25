@@ -107,6 +107,12 @@
       "idiom" : "ios-marketing",
       "scale" : "1x",
       "size" : "1024x1024"
+    },
+    {
+      "filename" : "AppIcon-1024.png",
+      "idiom" : "vision",
+      "scale" : "1x",
+      "size" : "1024x1024"
     }
   ],
   "info" : {

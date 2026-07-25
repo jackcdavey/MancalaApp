@@ -1,7 +1,17 @@
-import FoundationModels
+enum FoundationModelAIMoveProvider {
+    static var isAvailable: Bool {
+        false
+    }
 
-@Generable
-struct AIMancalaMove {
-    @Guide(description: "One legal pit index from the provided legal pit list", .range(0...12))
-    var pitIndex: Int
+    static var availabilityMessage: String? {
+        "AI play uses local heuristics on this OS version."
+    }
+
+    static func choosePit(prompt: String) async throws -> Int {
+        throw FoundationModelAIMoveError.unavailable
+    }
+}
+
+enum FoundationModelAIMoveError: Error {
+    case unavailable
 }

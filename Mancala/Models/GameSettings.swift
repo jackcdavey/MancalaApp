@@ -1,5 +1,41 @@
 import SwiftUI
 
+enum VisualTheme: String, CaseIterable, Identifiable {
+    case liquidGlass
+    case flat
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .liquidGlass: "Immersive"
+        case .flat: "Flat"
+        }
+    }
+}
+
+/// Surface finish for the 3D board slab. Each style maps to a procedurally
+/// generated base-color texture and a set of PBR parameters in `BoardScene`.
+enum BoardMaterialStyle: String, CaseIterable, Identifiable {
+    case walnut
+    case maple
+    case marble
+    case slate
+    case frostedGlass
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .walnut: "Walnut"
+        case .maple: "Maple"
+        case .marble: "Marble"
+        case .slate: "Slate"
+        case .frostedGlass: "Frosted Glass"
+        }
+    }
+}
+
 enum GameMode: String, CaseIterable, Identifiable {
     case twoPlayer
     case singlePlayer
