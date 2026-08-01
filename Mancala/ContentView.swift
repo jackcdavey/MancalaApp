@@ -749,13 +749,13 @@ struct ContentView: View {
                     .font(.headline)
                     .foregroundStyle(primaryText)
 
-                Text("Touch a pit — or look at it and pinch — to sow. Use the handle below the board to move it or snap it onto a surface, and pinch the wood and twist to turn it.")
+                Text("Touch a pit — or look at it and pinch — to sow. Use the handle below the board to move it or snap it onto a surface. Pinch the wood and swing or twist your hand to turn the board, or pinch it with both hands to resize it.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 380)
 
-                boardRotationControls
+                boardPlacementControls
             } else {
                 // Mesh/texture generation can take a visible moment, especially
                 // on first launch — say so instead of leaving an empty room.
@@ -779,10 +779,11 @@ struct ContentView: View {
         .frame(height: boardHeight)
     }
 
-    /// Quarter-turn buttons for players who'd rather not reach out and twist
-    /// the board — and the discoverable half of the gesture, since a twist
-    /// isn't something you'd think to try unprompted.
-    private var boardRotationControls: some View {
+    /// Quarter-turn and size buttons for players who'd rather not reach out and
+    /// handle the board — and the discoverable half of both gestures, since
+    /// neither a twist nor a two-handed pinch is something you'd think to try
+    /// unprompted.
+    private var boardPlacementControls: some View {
         HStack(spacing: 10) {
             Button {
                 spatialBoard.rotateBoard(by: .pi / 2)
@@ -797,11 +798,30 @@ struct ContentView: View {
             } label: {
                 Label("Turn Right", systemImage: "rotate.right")
             }
+
+            Divider()
+                .frame(height: 22)
+
+            Button {
+                spatialBoard.scaleBoard(by: 1 / 1.15)
+                hapticTrigger += 1
+            } label: {
+                Label("Smaller", systemImage: "minus.magnifyingglass")
+            }
+            .disabled(spatialBoard.boardScale <= SpatialBoardModel.BoardScaleRange.minimum)
+
+            Button {
+                spatialBoard.scaleBoard(by: 1.15)
+                hapticTrigger += 1
+            } label: {
+                Label("Bigger", systemImage: "plus.magnifyingglass")
+            }
+            .disabled(spatialBoard.boardScale >= SpatialBoardModel.BoardScaleRange.maximum)
         }
         .buttonStyle(.bordered)
         .labelStyle(.iconOnly)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Turn the board")
+        .accessibilityLabel("Turn and resize the board")
     }
 
     /// The result panel the anchored board floats above itself, or `nil`
