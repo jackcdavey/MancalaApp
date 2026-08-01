@@ -503,13 +503,8 @@ struct SpatialBoardView: View {
     }
 
     private func playPit(startingAt entity: Entity) {
-        var current: Entity? = entity
-        while let entity = current {
-            if let pit = entity.components[PitIndexComponent.self]?.index {
-                model.scene.onPitTapped?(pit)
-                return
-            }
-            current = entity.parent
+        if let pit = entity.pitIndex {
+            model.scene.onPitTapped?(pit)
         }
     }
 }

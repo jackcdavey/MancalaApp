@@ -20,6 +20,21 @@ struct PitIndexComponent: Component {
 /// pit targets that sit on top of it.
 struct BoardSlabComponent: Component {}
 
+extension Entity {
+    /// The pit this entity stands for, looking up through its ancestors: a hit
+    /// test can land on any part of a tap target, not just the tagged entity.
+    var pitIndex: Int? {
+        var entity: Entity? = self
+        while let current = entity {
+            if let index = current.components[PitIndexComponent.self]?.index {
+                return index
+            }
+            entity = current.parent
+        }
+        return nil
+    }
+}
+
 /// Per-frame motion state for a flying sowing stone: a damped-spring follower
 /// chasing `target`, so velocity carries across retargets — the pile
 /// accelerates out of a well, coasts, and settles into the next one instead

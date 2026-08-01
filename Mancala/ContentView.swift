@@ -66,12 +66,15 @@ struct ContentView: View {
     @AppStorage("savedOnlineGameState") private var savedOnlineGameState = Data()
     @AppStorage("completedGameHistory") private var completedGameHistoryData = Data()
     @AppStorage("savedGameState") private var legacySavedGameState = Data()
+    /// The board drawn inside the window. On visionOS the volume keeps a scene
+    /// of its own: a built RealityKit graph can't be handed from one
+    /// `RealityView` to another, so each host needs its own.
+    @State private var boardScene = BoardScene()
     #if os(visionOS)
     @Environment(SpatialBoardModel.self) private var spatialBoard
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     #else
-    @State private var boardScene = BoardScene()
     @State private var motionParallax = MotionParallaxController()
     #endif
 
@@ -301,24 +304,40 @@ struct ContentView: View {
         return tableRotationDegrees == 180 ? -22 : 22
     }
 
-    /// The default theme renders as a real RealityKit board: in-window on
-    /// iOS/macOS, anchored to a real surface via the immersive space on
-    /// visionOS. On visionOS this is only "active" while the space is open —
-    /// if the user closes it, the window falls back to the 2D board.
+    /// The default theme renders as a real RealityKit board on every platform.
+    /// On visionOS it can additionally be lifted out of the window and placed
+    /// in the room — the same board either way, so this stays true throughout.
     private var is3DBoardActive: Bool {
+        visualTheme == .liquidGlass
+    }
+
+    /// True while the board is out in the room rather than in the window, so
+    /// the window gives its board slot over to the placement panel.
+    private var isBoardPlacedInSpace: Bool {
         #if os(visionOS)
-        return visualTheme == .liquidGlass && spatialBoard.isOpen
+        return is3DBoardActive && spatialBoard.isOpen
         #else
-        return visualTheme == .liquidGlass
+        return false
         #endif
+    }
+
+    /// True while the window is the one drawing the board.
+    private var isWindowBoardShown: Bool {
+        is3DBoardActive && !isBoardPlacedInSpace
     }
 
     /// The scene that stone-flight animations should target, when one is live.
     private var activeBoardScene: BoardScene? {
+        guard is3DBoardActive else { return nil }
+        return isBoardPlacedInSpace ? spatialBoardScene : boardScene
+    }
+
+    /// The volume's scene on visionOS; never reached elsewhere.
+    private var spatialBoardScene: BoardScene {
         #if os(visionOS)
-        return spatialBoard.isOpen ? spatialBoard.scene : nil
+        return spatialBoard.scene
         #else
-        return is3DBoardActive ? boardScene : nil
+        return boardScene
         #endif
     }
 
@@ -480,11 +499,7 @@ struct ContentView: View {
     /// window: with the board out in the room, a popup here would be behind the
     /// player rather than where they're looking.
     private var isEndGameShownOnBoard: Bool {
-        #if os(visionOS)
-        return is3DBoardActive
-        #else
-        return false
-        #endif
+        isBoardPlacedInSpace
     }
 
     private var endGameTitle: String {
@@ -648,8 +663,7 @@ struct ContentView: View {
         let visibleStatusSpacing = isPortrait && shouldShowStatusPanel ? contentSpacing : 0
         let scoreRowHeight: CGFloat = isPortrait ? 70 : 0
         let scoreRowSpacing = isPortrait ? contentSpacing : 0
-        let slabClearance: CGFloat = visualTheme == .liquidGlass && !is3DBoardActive ? 42 : 0
-        let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing - scoreRowHeight - scoreRowSpacing - slabClearance)
+        let boardHeight = max(260, availableHeight - headerHeight - statusHeight - contentSpacing - visibleStatusSpacing - scoreRowHeight - scoreRowSpacing)
         let portraitStoreHeight = min(54, max(38, boardHeight * 0.10))
         let portraitPitHeight = max(34, (boardHeight - 24 - 20 - (portraitStoreHeight * 2) - 40) / 6)
 
@@ -657,35 +671,36 @@ struct ContentView: View {
             header(isPortrait: isPortrait)
                 .frame(height: headerHeight)
 
-            #if os(visionOS)
-            if is3DBoardActive {
-                spatialBoardPlaceholder(boardHeight: boardHeight)
-            } else {
-                twoDimensionalBoard(isPortrait: isPortrait, boardHeight: boardHeight, portraitPitHeight: portraitPitHeight, portraitStoreHeight: portraitStoreHeight)
-            }
-            #else
             ZStack {
-                // Kept mounted at all times, even when another theme is showing:
-                // tearing down and recreating the RealityView loses the RealityKit
-                // scene the persisted `BoardScene` entity graph was attached to, so
-                // reusing that graph in a freshly recreated RealityView renders
-                // nothing. Hiding it in place avoids ever destroying it.
+                // Kept mounted at all times, even when another theme or the
+                // placed board is what's on screen: tearing down and recreating
+                // the RealityView loses the RealityKit scene the persisted
+                // `BoardScene` entity graph was attached to, so reusing that
+                // graph in a freshly recreated RealityView renders nothing.
+                // Hiding it in place avoids ever destroying it — and means the
+                // board is warm the moment it's called for.
                 board3DSection(isPortrait: isPortrait, boardHeight: boardHeight)
-                    // Break out of `gameContent`'s horizontal inset so the board
-                    // spans the full screen width and can travel to the real
-                    // edges when parallax tilts it (header/status stay inset).
-                    // Only applied while actually shown, so the hidden layer
-                    // doesn't widen the ZStack when the 2D board is active.
-                    .padding(.horizontal, is3DBoardActive ? (isPortrait ? -16 : -10) : 0)
-                    .opacity(is3DBoardActive ? 1 : 0)
-                    .allowsHitTesting(is3DBoardActive)
-                    .accessibilityHidden(!is3DBoardActive)
+                    // Break out of `gameContent`'s horizontal inset so the
+                    // board spans the full screen width and can travel to the
+                    // real edges when parallax tilts it (header/status stay
+                    // inset). Only applied while actually shown, so the hidden
+                    // layer doesn't widen the ZStack when the 2D board is
+                    // active.
+                    .padding(.horizontal, isWindowBoardShown ? (isPortrait ? -16 : -10) : 0)
+                    .opacity(isWindowBoardShown ? 1 : 0)
+                    .allowsHitTesting(isWindowBoardShown)
+                    .accessibilityHidden(!isWindowBoardShown)
+
+                #if os(visionOS)
+                if isBoardPlacedInSpace {
+                    spatialBoardPlaceholder(boardHeight: boardHeight)
+                }
+                #endif
 
                 if !is3DBoardActive {
                     twoDimensionalBoard(isPortrait: isPortrait, boardHeight: boardHeight, portraitPitHeight: portraitPitHeight, portraitStoreHeight: portraitStoreHeight)
                 }
             }
-            #endif
 
             if isPortrait {
                 scoreRow
@@ -697,7 +712,6 @@ struct ContentView: View {
                     .frame(height: statusHeight)
             }
         }
-        .padding(.bottom, !isPortrait && visualTheme == .liquidGlass && !is3DBoardActive ? 30 : 0)
     }
 
     private func twoDimensionalBoard(isPortrait: Bool, boardHeight: CGFloat, portraitPitHeight: CGFloat, portraitStoreHeight: CGFloat) -> some View {
@@ -828,7 +842,7 @@ struct ContentView: View {
     /// whenever it belongs in the window instead (board returned, menu open) or
     /// the game is still running.
     private var spatialEndGameBanner: SpatialBoardModel.EndGameBanner? {
-        guard is3DBoardActive, isGameFinished, !isMainMenuPresented else { return nil }
+        guard isBoardPlacedInSpace, isGameFinished, !isMainMenuPresented else { return nil }
 
         return SpatialBoardModel.EndGameBanner(
             title: endGameTitle,
@@ -878,7 +892,8 @@ struct ContentView: View {
             dismissWindow(id: SpatialBoardModel.windowID)
         }
     }
-    #else
+    #endif
+
     /// The RealityKit board used by the default theme. All surrounding
     /// chrome (header, status panel, popups) stays SwiftUI.
     private func board3DSection(isPortrait: Bool, boardHeight: CGFloat) -> some View {
@@ -909,10 +924,15 @@ struct ContentView: View {
             boardScene.onPitTapped = { index in
                 Task { await animateMove(from: index) }
             }
+            #if !os(visionOS)
             if gyroMotionEnabled {
                 startMotionParallax()
             }
+            #endif
         }
+        #if !os(visionOS)
+        // Parallax leans the board with the device; there's no device to lean
+        // on visionOS, where moving your head does the same job for real.
         .onDisappear {
             motionParallax.stop()
         }
@@ -924,6 +944,7 @@ struct ContentView: View {
                 boardScene.setParallax(yaw: 0, pitch: 0)
             }
         }
+        #endif
     }
 
     /// Shown over the board area while `BoardScene` is still building its
@@ -966,6 +987,7 @@ struct ContentView: View {
         .accessibilityLabel("Applying material")
     }
 
+    #if !os(visionOS)
     private func startMotionParallax() {
         motionParallax.start { yaw, pitch in
             boardScene.setParallax(yaw: yaw, pitch: pitch)
