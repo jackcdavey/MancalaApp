@@ -15,6 +15,11 @@ struct PitIndexComponent: Component {
     let index: Int
 }
 
+/// Tags the carved slab itself. On visionOS the board's bare wood is what the
+/// rotate gesture grabs, so it needs to be findable without reaching for the
+/// pit targets that sit on top of it.
+struct BoardSlabComponent: Component {}
+
 /// Per-frame motion state for a flying sowing stone: a damped-spring follower
 /// chasing `target`, so velocity carries across retargets — the pile
 /// accelerates out of a well, coasts, and settles into the next one instead
@@ -219,6 +224,7 @@ final class BoardScene {
             return root
         }
         PitIndexComponent.registerComponent()
+        BoardSlabComponent.registerComponent()
         SowingMotionComponent.registerComponent()
         SowingMotionSystem.registerSystem()
 
@@ -247,6 +253,20 @@ final class BoardScene {
             // Seats the slab visually on the volume's baseplate / the real
             // surface the volume is snapped to.
             slab.components.set(GroundingShadowComponent(castsShadow: true))
+            // Grab surface for the rotate gesture. A box around the slab rather
+            // than the carved mesh: the raised pit targets stand proud of the
+            // wood, so they still win the hit test where they overlap, and the
+            // bare wood between and around them becomes the handle.
+            slab.components.set(BoardSlabComponent())
+            slab.components.set(CollisionComponent(shapes: [
+                .generateBox(
+                    width: BoardLayout3D.width,
+                    height: BoardLayout3D.thickness,
+                    depth: BoardLayout3D.depth
+                )
+                .offsetBy(translation: SIMD3(0, -BoardLayout3D.thickness / 2, 0))
+            ]))
+            slab.components.set(InputTargetComponent(allowedInputTypes: .indirect))
             #endif
             boardRoot.addChild(slab)
             self.slab = slab
@@ -306,15 +326,23 @@ final class BoardScene {
 
             let labelAnchor = Entity()
             let outward: SIMD2<Float> = isStore
-                ? SIMD2(well.center.x > 0 ? 0.055 : -0.055, 0)
-                : SIMD2(0, well.center.y > 0 ? 0.042 : -0.042)
-            labelAnchor.position = SIMD3(well.center.x + outward.x, 0.035, well.center.y + outward.y)
+                ? SIMD2(well.center.x > 0 ? BoardLayout3D.labelStoreOutset : -BoardLayout3D.labelStoreOutset, 0)
+                : SIMD2(0, well.center.y > 0 ? BoardLayout3D.labelPitOutset : -BoardLayout3D.labelPitOutset)
+            labelAnchor.position = SIMD3(
+                well.center.x + outward.x,
+                BoardLayout3D.labelHeight,
+                well.center.y + outward.y
+            )
             labelAnchor.components.set(BillboardComponent())
             boardRoot.addChild(labelAnchor)
             labelAnchors.append(labelAnchor)
 
             let background = ModelEntity(
-                mesh: .generatePlane(width: 0.038, height: 0.019, cornerRadius: 0.0095),
+                mesh: .generatePlane(
+                    width: BoardLayout3D.labelPillWidth,
+                    height: BoardLayout3D.labelPillHeight,
+                    cornerRadius: BoardLayout3D.labelPillHeight / 2
+                ),
                 materials: [labelBackgroundMaterial]
             )
             labelAnchor.addChild(background)

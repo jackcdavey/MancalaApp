@@ -46,6 +46,41 @@ enum BoardLayout3D {
     static let storeX: Float = 0.284
     static let storeHalfLength: Float = 0.058
 
+    /// Count-label placement: how far outside a well's center the label floats
+    /// (stores push out past the board's ends, pit rows past their row), how
+    /// high above the top face it hovers, and the size of its backing pill.
+    /// Shared by `BoardScene`, which builds the labels, and by the volume,
+    /// which has to fit them.
+    static let labelStoreOutset: Float = 0.055
+    static let labelPitOutset: Float = 0.042
+    static let labelHeight: Float = 0.035
+    static let labelPillWidth: Float = 0.038
+    static let labelPillHeight: Float = 0.019
+
+    /// Half-width of everything drawn at unit scale: the store labels overhang
+    /// the slab's ends, so they — not the slab — set the footprint.
+    static var contentHalfWidth: Float {
+        max(width / 2, storeX + labelStoreOutset + labelPillWidth / 2)
+    }
+
+    /// Half-depth at unit scale. The row labels fall inside the slab, so this
+    /// is normally just the slab.
+    static var contentHalfDepth: Float {
+        max(depth / 2, pitRowZ + labelPitOutset + labelPillHeight / 2)
+    }
+
+    /// Total height at unit scale, from the slab's underside to the top of the
+    /// floating count labels.
+    static var contentHeight: Float {
+        thickness + labelHeight + labelPillHeight / 2
+    }
+
+    /// Radius of the circle the board sweeps when turned about its center —
+    /// the footprint it needs to be free to face any direction.
+    static var contentSweepRadius: Float {
+        (contentHalfWidth * contentHalfWidth + contentHalfDepth * contentHalfDepth).squareRoot()
+    }
+
     static let stoneRadius: Float = 0.0105
     /// Beyond this many stones a well stops adding visible stones; the count
     /// label carries the truth (the 2D board similarly caps at 18).

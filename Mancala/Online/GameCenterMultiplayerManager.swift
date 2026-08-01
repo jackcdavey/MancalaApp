@@ -114,7 +114,7 @@ final class GameCenterMultiplayerManager: NSObject {
         let request = GKMatchRequest()
         request.minPlayers = 2
         request.maxPlayers = 2
-        request.inviteMessage = "Play Mancala with me."
+        request.inviteMessage = "Play \(AppInfo.name) with me."
 
         let viewController = GKTurnBasedMatchmakerViewController(matchRequest: request)
         viewController.turnBasedMatchmakerDelegate = self
@@ -209,7 +209,7 @@ final class GameCenterMultiplayerManager: NSObject {
                     }
                 } else {
                     let nextParticipants = manager.nextParticipants(after: match.currentParticipant, in: match)
-                    match.message = "Your turn in Mancala."
+                    match.message = "Your turn in \(AppInfo.name)."
                     match.endTurn(
                         withNextParticipants: nextParticipants,
                         turnTimeout: GKTurnTimeoutDefault,

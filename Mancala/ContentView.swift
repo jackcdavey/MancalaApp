@@ -102,7 +102,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: isPortrait ? .infinity : nil, alignment: isPortrait ? .top : .center)
                     .accessibilityHidden(isMainMenuPresented)
 
-                if (game.isGameOver || challengeFailed) && !isMainMenuPresented {
+                if isGameFinished && !isMainMenuPresented && !isEndGameShownOnBoard {
                     endGamePopup
                         .padding(.horizontal, 24)
                         .transition(.scale(scale: 0.82).combined(with: .opacity))
@@ -144,6 +144,18 @@ struct ContentView: View {
             spatialBoard.scene.onPitTapped = { index in
                 Task { await animateMove(from: index) }
             }
+            spatialBoard.onEndGameAction = { action in
+                switch action {
+                case .primary:
+                    if let activeChallenge {
+                        startChallenge(activeChallenge)
+                    } else {
+                        playAgainFromEndGamePopup()
+                    }
+                case .secondary:
+                    returnToChallengeList()
+                }
+            }
             // The 3D theme lives in the room on visionOS; open the board
             // volume on launch. If the user closes it, `isOpen` goes false
             // and the window shows the 2D board instead.
@@ -156,6 +168,9 @@ struct ContentView: View {
         }
         .onChange(of: visualTheme) { _, theme in
             setSpatialBoard(open: theme == .liquidGlass)
+        }
+        .onChange(of: spatialEndGameBanner, initial: true) { _, banner in
+            spatialBoard.endGame = banner
         }
         #endif
         .onChange(of: onlineManager.currentMatchID) { _, _ in
@@ -455,6 +470,23 @@ struct ContentView: View {
         return game.winner == .playerOne && challengeMovesUsed <= activeChallenge.moveLimit
     }
 
+    /// The game reached an end state worth reporting — either finished, or a
+    /// challenge that ran out of moves before it could finish.
+    private var isGameFinished: Bool {
+        game.isGameOver || challengeFailed
+    }
+
+    /// True while the result belongs on the anchored board instead of in the
+    /// window: with the board out in the room, a popup here would be behind the
+    /// player rather than where they're looking.
+    private var isEndGameShownOnBoard: Bool {
+        #if os(visionOS)
+        return is3DBoardActive
+        #else
+        return false
+        #endif
+    }
+
     private var endGameTitle: String {
         if activeChallenge != nil {
             if isChallengeWon {
@@ -493,6 +525,15 @@ struct ContentView: View {
         }
 
         return "\(game.storeCount(for: .playerOne)) - \(game.storeCount(for: .playerTwo))"
+    }
+
+    /// Label for the "start over" button, shared by the window popup and the
+    /// board's floating banner so the two never drift apart.
+    private var endGamePrimaryActionTitle: String {
+        if activeChallenge != nil {
+            return isChallengeWon ? "Play Again" : "Try Again"
+        }
+        return gameMode == .onlineMultiplayer ? "Play Again Online" : "Play Again"
     }
 
     private var endGameSymbolColor: Color {
@@ -708,11 +749,13 @@ struct ContentView: View {
                     .font(.headline)
                     .foregroundStyle(primaryText)
 
-                Text("Touch a pit — or look at it and pinch — to sow. Use the handle below the board to move it or snap it onto a surface.")
+                Text("Touch a pit — or look at it and pinch — to sow. Use the handle below the board to move it or snap it onto a surface, and pinch the wood and twist to turn it.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 380)
+
+                boardRotationControls
             } else {
                 // Mesh/texture generation can take a visible moment, especially
                 // on first launch — say so instead of leaving an empty room.
@@ -734,6 +777,47 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.28), value: spatialBoard.scene.isBuilt)
         .frame(maxWidth: .infinity)
         .frame(height: boardHeight)
+    }
+
+    /// Quarter-turn buttons for players who'd rather not reach out and twist
+    /// the board — and the discoverable half of the gesture, since a twist
+    /// isn't something you'd think to try unprompted.
+    private var boardRotationControls: some View {
+        HStack(spacing: 10) {
+            Button {
+                spatialBoard.rotateBoard(by: .pi / 2)
+                hapticTrigger += 1
+            } label: {
+                Label("Turn Left", systemImage: "rotate.left")
+            }
+
+            Button {
+                spatialBoard.rotateBoard(by: -.pi / 2)
+                hapticTrigger += 1
+            } label: {
+                Label("Turn Right", systemImage: "rotate.right")
+            }
+        }
+        .buttonStyle(.bordered)
+        .labelStyle(.iconOnly)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Turn the board")
+    }
+
+    /// The result panel the anchored board floats above itself, or `nil`
+    /// whenever it belongs in the window instead (board returned, menu open) or
+    /// the game is still running.
+    private var spatialEndGameBanner: SpatialBoardModel.EndGameBanner? {
+        guard is3DBoardActive, isGameFinished, !isMainMenuPresented else { return nil }
+
+        return SpatialBoardModel.EndGameBanner(
+            title: endGameTitle,
+            subtitle: endGameSubtitle,
+            symbolName: endGameSymbolName,
+            symbolColor: endGameSymbolColor,
+            primaryTitle: endGamePrimaryActionTitle,
+            secondaryTitle: activeChallenge != nil ? "Challenges" : nil
+        )
     }
 
     /// Everything the anchored board mirrors, snapshotted so a single
@@ -913,7 +997,7 @@ struct ContentView: View {
                     Button {
                         startChallenge(activeChallenge)
                     } label: {
-                        Label(isChallengeWon ? "Play Again" : "Try Again", systemImage: "arrow.counterclockwise")
+                        Label(endGamePrimaryActionTitle, systemImage: "arrow.counterclockwise")
                             .font(.headline.weight(.semibold))
                             .foregroundStyle(primaryText)
                             .frame(maxWidth: .infinity)
@@ -942,7 +1026,7 @@ struct ContentView: View {
                 Button {
                     playAgainFromEndGamePopup()
                 } label: {
-                    Label(gameMode == .onlineMultiplayer ? "Play Again Online" : "Play Again", systemImage: "arrow.counterclockwise")
+                    Label(endGamePrimaryActionTitle, systemImage: "arrow.counterclockwise")
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(primaryText)
                         .frame(maxWidth: .infinity)
@@ -1025,7 +1109,7 @@ struct ContentView: View {
             .accessibilityHidden(true)
 
             VStack(spacing: 6) {
-                Text("Mancala")
+                Text(AppInfo.name)
                     .font(displayFont(size: 52, weight: .medium))
                     .foregroundStyle(primaryText)
 
@@ -1439,7 +1523,7 @@ struct ContentView: View {
 
     private func headerTitle(alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 3) {
-            Text("Mancala")
+            Text(AppInfo.name)
                 .font(displayFont(size: 32, weight: .medium))
                 .foregroundStyle(primaryText)
 
