@@ -30,22 +30,39 @@ struct Board3DView: View {
     /// fitting pass that owns the holder's scale and position.
     @State private var boardLean = Entity()
 
-    /// Matches `BoardScene`'s camera pitch on iOS, so the board is foreshortened
-    /// by the same amount here as it is there.
-    private static let lean: Float = 0.92
+    /// How far back the board is leaned toward the viewer. Lying back matches
+    /// `BoardScene`'s camera pitch on iOS, so a board across a wide window is
+    /// foreshortened by the same amount here as it is there.
+    ///
+    /// Stood end-up in a tall window it has to lean much closer to upright:
+    /// what leaning costs in depth is proportional to the length of the board
+    /// running away from the viewer, and end-up that's its long axis — laid
+    /// back the same amount, a portrait board would reach half a meter out of
+    /// the window.
+    private static let landscapeLean: Float = 0.92
+    private static let portraitLean: Float = 1.4
     /// Depth to ask the window for. Enough that the leaned board is framed by
     /// the window's width and height, the way the iOS board is, rather than
-    /// being squeezed flat by the depth first.
-    private static let depth: CGFloat = 320
-    /// Clearance kept between the board and the edges of its bounds.
-    private static let fitMargin: Float = 0.94
+    /// being squeezed flat by the depth first — but no deeper, because
+    /// everything the board reaches forward costs it twice: it draws over
+    /// SwiftUI chrome sitting on the window plane, like menus and sheets, and
+    /// it projects larger than its own footprint.
+    private static let depth: CGFloat = 200
+    /// Clearance kept between the board and the edges of its bounds. Generous,
+    /// because the board stands in front of the window rather than on it: it's
+    /// nearer the eye than the glass is, so it projects bigger than the box it
+    /// occupies, and a board fitted flush to its bounds spills past the
+    /// window's edges.
+    private static let fitMargin: Float = 0.85
+    /// Clearance kept below the board, in meters, on top of that margin.
+    private static let bottomInset: Float = 0.022
 
     var body: some View {
         GeometryReader3D { proxy in
             RealityView { content in
                 let sceneRoot = await scene.buildRoot()
                 boardLean.addChild(sceneRoot)
-                boardLean.orientation = Self.orientation(flipped: flipped)
+                boardLean.orientation = orientation
                 boardHolder.addChild(boardLean)
                 content.add(boardHolder)
                 fitBoard(content: content, proxy: proxy)
@@ -57,22 +74,28 @@ struct Board3DView: View {
             .gesture(pitTapGesture)
         }
         .frame(depth: Self.depth)
-        .onChange(of: flipped) { _, isFlipped in
-            boardLean.move(
-                to: Transform(scale: .one, rotation: Self.orientation(flipped: isFlipped), translation: .zero),
-                relativeTo: boardHolder,
-                duration: 0.5,
-                timingFunction: .easeInOut
-            )
-        }
+        .onChange(of: flipped) { _, _ in settleLean() }
+        .onChange(of: isPortrait) { _, _ in settleLean() }
         .accessibilityLabel("Mancala board")
     }
 
     /// The board leaned back toward the viewer, turned end for end when the
-    /// table is flipped to face player two.
-    private static func orientation(flipped: Bool) -> simd_quatf {
-        simd_quatf(angle: lean, axis: SIMD3(1, 0, 0))
+    /// table is flipped to face player two. Standing it on end for a tall
+    /// window is `BoardScene`'s job, not this one's — the scene owns which way
+    /// round that turn goes, and the 2D board's portrait layout is matched to
+    /// it.
+    private var orientation: simd_quatf {
+        simd_quatf(angle: isPortrait ? Self.portraitLean : Self.landscapeLean, axis: SIMD3(1, 0, 0))
             * simd_quatf(angle: flipped ? .pi : 0, axis: SIMD3(0, 1, 0))
+    }
+
+    private func settleLean() {
+        boardLean.move(
+            to: Transform(scale: .one, rotation: orientation, translation: .zero),
+            relativeTo: boardHolder,
+            duration: 0.5,
+            timingFunction: .easeInOut
+        )
     }
 
     /// Size the board to the window's bounds. The board is leaned, so what has
@@ -80,10 +103,13 @@ struct Board3DView: View {
     /// for height.
     private func fitBoard(content: RealityViewContent, proxy: GeometryProxy3D) {
         let bounds = content.convert(proxy.frame(in: .local), from: .local, to: .scene)
-        let lying = cos(Self.lean)
-        let standing = sin(Self.lean)
-        let across = BoardLayout3D.contentHalfWidth * 2
-        let along = BoardLayout3D.contentHalfDepth * 2
+        let lean = isPortrait ? Self.portraitLean : Self.landscapeLean
+        let lying = cos(lean)
+        let standing = sin(lean)
+        // Stood on end for a tall window, it's the board's length that runs up
+        // the window and its width that runs across.
+        let across = 2 * (isPortrait ? BoardLayout3D.contentHalfDepth : BoardLayout3D.contentHalfWidth)
+        let along = 2 * (isPortrait ? BoardLayout3D.contentHalfWidth : BoardLayout3D.contentHalfDepth)
         let tall = BoardLayout3D.contentHeight
         let needed = SIMD3<Float>(
             across,
@@ -91,25 +117,31 @@ struct Board3DView: View {
             tall * standing + along * lying
         )
 
-        // Depth only constrains the fit when the window actually grants some.
-        // A window that reports none would otherwise scale the board to nothing
-        // and leave the board slot empty; better a board that's clipped front to
-        // back than no board at all.
+        // The margin applies to what the window shows of the board, not to how
+        // far it reaches toward the viewer — depth is a hard ceiling, and
+        // holding the board back from it would only waste it.
+        //
+        // Depth constrains the fit only when the window actually grants some. A
+        // window reporting none would otherwise scale the board to nothing and
+        // leave the board slot empty; better a board clipped front to back than
+        // no board at all.
+        // Held clear of the bottom of its own slot rather than by padding the
+        // slot: the leaned board's near edge is the part that reaches for the
+        // window's lower edge and the system handle below it.
         let extents = bounds.extents
-        let depthLimit = extents.z > 0.01 ? extents.z / needed.z : .greatestFiniteMagnitude
-        let fit = min(
-            extents.x / needed.x,
-            extents.y / needed.y,
-            depthLimit
-        ) * Self.fitMargin
+        let usableHeight = max(extents.y - Self.bottomInset, 0.01)
+        let framed = min(extents.x / needed.x, usableHeight / needed.y) * Self.fitMargin
+        let deep = extents.z > 0.01 ? extents.z / needed.z : .greatestFiniteMagnitude
 
-        boardHolder.scale = SIMD3(repeating: max(fit, 0.01))
-        boardHolder.position = bounds.center
+        boardHolder.scale = SIMD3(repeating: max(min(framed, deep), 0.01))
+        boardHolder.position = bounds.center + SIMD3(0, Self.bottomInset / 2, 0)
     }
 
-    /// The flip is applied to the board itself here rather than to a camera, so
-    /// the scene is told the board is unflipped; the same goes for the other
-    /// camera-framing inputs, which do nothing without a camera.
+    /// `portrait` stands the board on end for a tall window, which the scene
+    /// does by turning the board itself — so it applies here just as it does on
+    /// iOS. The flip is the opposite case: on iOS the scene swings a camera,
+    /// which visionOS hasn't got, so this view turns the board instead and the
+    /// scene is told it's unflipped. `viewSize` only frames that camera.
     private func syncScene() {
         scene.sync(
             pits: pits,
@@ -117,7 +149,7 @@ struct Board3DView: View {
             hinted: hintedPit,
             currentStore: currentStoreIndex,
             flipped: false,
-            portrait: false,
+            portrait: isPortrait,
             viewSize: CGSize(width: 1, height: 1),
             showLabels: showLabels,
             dark: isDarkMode,

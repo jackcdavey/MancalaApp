@@ -103,13 +103,19 @@ struct ContentView: View {
                     .padding(.vertical, verticalPadding)
                     .frame(maxWidth: isPortrait ? 520 : 980)
                     .frame(maxWidth: .infinity, maxHeight: isPortrait ? .infinity : nil, alignment: isPortrait ? .top : .center)
+                    .opacity(gameContentOpacity)
                     .accessibilityHidden(isMainMenuPresented)
 
+                // These two are stacked by declaration order, not by `zIndex`.
+                // The window's content has depth now that it holds a board, and
+                // in a container with depth a raised `zIndex` lifts a view
+                // forward in space — out through the glass, past the rounded
+                // corners the window clips its contents to, and in front of the
+                // window bar and corner resize grips below.
                 if isGameFinished && !isMainMenuPresented && !isEndGameShownOnBoard {
                     endGamePopup
                         .padding(.horizontal, 24)
                         .transition(.scale(scale: 0.82).combined(with: .opacity))
-                        .zIndex(4)
                 }
 
                 // Layered above the game rather than replacing it, so the 3D
@@ -118,7 +124,6 @@ struct ContentView: View {
                 if isMainMenuPresented {
                     mainMenu
                         .transition(.opacity)
-                        .zIndex(5)
                 }
             }
         }
@@ -196,13 +201,45 @@ struct ContentView: View {
         }
     }
 
-    private var background: some View {
+    private var backgroundGradient: LinearGradient {
         LinearGradient(
             colors: isDarkMode ? darkBackgroundColors : lightBackgroundColors,
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
-        .ignoresSafeArea()
+    }
+
+    private var background: some View {
+        backgroundGradient
+            .ignoresSafeArea()
+    }
+
+    /// The menu's own copy of the page background, painted over the game while
+    /// the menu is up.
+    ///
+    /// There isn't one on visionOS. The window's content has depth there now
+    /// that it holds a board, and a second opaque layer covering the whole
+    /// window inside that depth is what stopped the menu reading as a window at
+    /// all — square corners where the glass should round them off, and the
+    /// window bar and resize grips buried behind it. The window's own backdrop
+    /// serves instead, with the game hidden beneath rather than covered over
+    /// (see `gameContentOpacity`).
+    @ViewBuilder
+    private var menuBackground: some View {
+        #if !os(visionOS)
+        background
+        #endif
+    }
+
+    /// The game stays mounted under the main menu — that's what keeps the 3D
+    /// board's RealityView alive and warm — but on visionOS it's hidden rather
+    /// than painted over, so the menu needs no backdrop of its own.
+    private var gameContentOpacity: Double {
+        #if os(visionOS)
+        return isMainMenuPresented ? 0 : 1
+        #else
+        return 1
+        #endif
     }
 
     private var lightBackgroundColors: [Color] {
@@ -323,7 +360,15 @@ struct ContentView: View {
 
     /// True while the window is the one drawing the board.
     private var isWindowBoardShown: Bool {
-        is3DBoardActive && !isBoardPlacedInSpace
+        guard is3DBoardActive, !isBoardPlacedInSpace else { return false }
+        #if os(visionOS)
+        // The board stands in front of the window rather than on it, so it
+        // draws over anything the system layers on top — there's no putting it
+        // behind a sheet. It steps aside for the duration instead.
+        return !isSettingsPresented && !isGameHistoryPresented && !isRulesPresented && !isMainMenuPresented
+        #else
+        return true
+        #endif
     }
 
     /// The scene that stone-flight animations should target, when one is live.
@@ -680,13 +725,7 @@ struct ContentView: View {
                 // Hiding it in place avoids ever destroying it — and means the
                 // board is warm the moment it's called for.
                 board3DSection(isPortrait: isPortrait, boardHeight: boardHeight)
-                    // Break out of `gameContent`'s horizontal inset so the
-                    // board spans the full screen width and can travel to the
-                    // real edges when parallax tilts it (header/status stay
-                    // inset). Only applied while actually shown, so the hidden
-                    // layer doesn't widen the ZStack when the 2D board is
-                    // active.
-                    .padding(.horizontal, isWindowBoardShown ? (isPortrait ? -16 : -10) : 0)
+                    .padding(.horizontal, windowBoardInset(isPortrait: isPortrait))
                     .opacity(isWindowBoardShown ? 1 : 0)
                     .allowsHitTesting(isWindowBoardShown)
                     .accessibilityHidden(!isWindowBoardShown)
@@ -893,6 +932,25 @@ struct ContentView: View {
         }
     }
     #endif
+
+    /// How far the window's board reaches past `gameContent`'s horizontal
+    /// inset. Negative on iOS, so the board spans the full screen width and can
+    /// travel to the real edges when parallax tilts it while the header and
+    /// status stay inset — and only while it's actually shown, so the hidden
+    /// layer doesn't widen the ZStack when the 2D board is up.
+    ///
+    /// Zero on visionOS, where the board is 3D content standing in front of the
+    /// glass and keeps its own clearance from the edges of its slot (see
+    /// `Board3DView.fitBoard`). Insetting the slot there would make it taller
+    /// than the height the layout budgeted, pushing the score row and status
+    /// panel off the bottom of the window.
+    private func windowBoardInset(isPortrait: Bool) -> CGFloat {
+        #if os(visionOS)
+        return 0
+        #else
+        return isWindowBoardShown ? (isPortrait ? -16 : -10) : 0
+        #endif
+    }
 
     /// The RealityKit board used by the default theme. All surrounding
     /// chrome (header, status panel, popups) stays SwiftUI.
@@ -1103,7 +1161,7 @@ struct ContentView: View {
     private var mainMenu: some View {
         GeometryReader { proxy in
             ZStack {
-                background
+                menuBackground
 
                 ScrollView(showsIndicators: false) {
                     Group {
