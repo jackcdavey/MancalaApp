@@ -47,7 +47,11 @@ struct Board3DView: View {
     /// everything the board reaches forward costs it twice: it draws over
     /// SwiftUI chrome sitting on the window plane, like menus and sheets, and
     /// it projects larger than its own footprint.
-    private static let depth: CGFloat = 200
+    ///
+    /// Not private: it's the depth of the window's content as a whole, so
+    /// anything the window layers over the board inherits it (see
+    /// `ContentView`'s main menu).
+    static let windowDepth: CGFloat = 200
     /// Clearance kept between the board and the edges of its bounds. Generous,
     /// because the board stands in front of the window rather than on it: it's
     /// nearer the eye than the glass is, so it projects bigger than the box it
@@ -73,7 +77,7 @@ struct Board3DView: View {
             }
             .gesture(pitTapGesture)
         }
-        .frame(depth: Self.depth)
+        .frame(depth: Self.windowDepth)
         .onChange(of: flipped) { _, _ in settleLean() }
         .onChange(of: isPortrait) { _, _ in settleLean() }
         .accessibilityLabel("Mancala board")

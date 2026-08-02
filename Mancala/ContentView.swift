@@ -127,6 +127,12 @@ struct ContentView: View {
                 if isMainMenuPresented {
                     mainMenu
                         .transition(.opacity)
+                        // Held back toward the glass. The window's content is
+                        // as deep as the board asks for, and the menu, being
+                        // the last thing in the stack, is laid out at the front
+                        // of that depth — a good six inches proud of the
+                        // window, which is more float than the effect wants.
+                        .windowDepthOffset(-Board3DView.windowDepth / 2)
                 }
             }
         }
@@ -1120,7 +1126,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                             .padding(.horizontal, 16)
-                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1134,7 +1140,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                             .padding(.horizontal, 16)
-                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .mancalaGlassEffect(tint: storeTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1149,7 +1155,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .padding(.horizontal, 16)
-                        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1268,7 +1274,7 @@ struct ContentView: View {
             }
             .padding(.vertical, 13)
             .padding(.horizontal, 18)
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
         .mancalaGlassEffect(tint: isCurrent ? playableTint : pitTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1307,7 +1313,7 @@ struct ContentView: View {
             }
             .padding(.vertical, 13)
             .padding(.horizontal, 18)
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
         .mancalaGlassEffect(tint: activeChallenge != nil ? playableTint : pitTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1347,7 +1353,7 @@ struct ContentView: View {
                 .foregroundStyle(secondaryText)
                 .padding(.vertical, 10)
                 .padding(.horizontal, 14)
-                .contentShape(Rectangle())
+                .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back to menu")
@@ -1390,7 +1396,7 @@ struct ContentView: View {
             }
             .padding(.vertical, 13)
             .padding(.horizontal, 18)
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
         .mancalaGlassEffect(tint: isCompleted ? currentStoreTint : pitTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1425,7 +1431,8 @@ struct ContentView: View {
             }
             .foregroundStyle(secondaryText)
             .frame(width: 72)
-            .contentShape(Rectangle())
+            .padding(.vertical, 8)
+            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -1634,7 +1641,9 @@ struct ContentView: View {
             .font(.system(size: 19, weight: .medium))
             .foregroundStyle(primaryText)
             .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
+            // Round, like the system's own icon buttons: a square highlight
+            // around a lone glyph reads as a misfit.
+            .contentShape([.interaction, .hoverEffect], Circle())
             .playerFacingRotation(tableRotationDegrees)
     }
 
@@ -2358,6 +2367,11 @@ struct ContentView: View {
             .playerFacingRotation(tableRotationDegrees)
             .padding(.vertical, 12)
             .padding(.horizontal, 16)
+            // Matches the panel's own surface. Without a shape to go on, the
+            // gaze highlight falls back to the whole frame with a radius of the
+            // system's choosing, which is neither this panel's size nor its
+            // corners.
+            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
         .foregroundStyle(primaryText)
@@ -2420,7 +2434,7 @@ struct ContentView: View {
             .padding(.vertical, verticalInset)
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: minHeight)
-            .contentShape(pitHitShape)
+            .contentShape([.interaction, .hoverEffect], pitHitShape)
             .mancalaGlassEffect(tint: isPlayable ? playableTint : pitTint, cornerRadius: 20, role: .pit, interactive: isPlayable, seed: index)
             .overlay {
                 if isHinted {
@@ -2442,7 +2456,7 @@ struct ContentView: View {
             }
         }
         .buttonStyle(.plain)
-        .contentShape(pitHitShape)
+        .contentShape([.interaction, .hoverEffect], pitHitShape)
         .disabled(!isPlayable)
         .recordCellFrame(id: index)
         .accessibilityLabel("\(displayName(for: owner)) pit with \(game.pits[index]) stones")
@@ -3776,6 +3790,17 @@ private struct MancalaSurfaceModifier: ViewModifier {
 }
 
 private extension View {
+    /// Moves a view toward or away from the viewer, in points. Only visionOS
+    /// has anywhere to move it to; everywhere else this is the view itself.
+    @ViewBuilder
+    func windowDepthOffset(_ points: CGFloat) -> some View {
+        #if os(visionOS)
+        offset(z: points)
+        #else
+        self
+        #endif
+    }
+
     func mancalaGlassEffect(
         tint: Color,
         cornerRadius: CGFloat,
