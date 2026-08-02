@@ -77,6 +77,7 @@ struct ContentView: View {
     /// Where the player last left the board. Defaults to the window, so a first
     /// launch is one window and nothing else in the room.
     @AppStorage("prefersBoardInSpace") private var prefersBoardInSpace = false
+    @State private var isHeaderMenuPresented = false
     #else
     @State private var motionParallax = MotionParallaxController()
     #endif
@@ -127,12 +128,7 @@ struct ContentView: View {
                 if isMainMenuPresented {
                     mainMenu
                         .transition(.opacity)
-                        // Held back toward the glass. The window's content is
-                        // as deep as the board asks for, and the menu, being
-                        // the last thing in the stack, is laid out at the front
-                        // of that depth — a good six inches proud of the
-                        // window, which is more float than the effect wants.
-                        .windowDepthOffset(-Board3DView.windowDepth / 2)
+                        .windowDepthOffset(menuDepthOffset)
                 }
             }
         }
@@ -241,6 +237,19 @@ struct ContentView: View {
     private var menuBackground: some View {
         #if !os(visionOS)
         background
+        #endif
+    }
+
+    /// How far to hold the main menu back toward the window's glass. The
+    /// window's content is as deep as the board asks for, and the menu, being
+    /// the last thing in the stack, is laid out at the front of that depth — a
+    /// good six inches proud of the window, which is more float than the effect
+    /// wants. Nothing to hold back anywhere else: only visionOS has depth.
+    private var menuDepthOffset: CGFloat {
+        #if os(visionOS)
+        return -Board3DView.windowDepth / 2
+        #else
+        return 0
         #endif
     }
 
@@ -383,14 +392,26 @@ struct ContentView: View {
 
     /// True while the window is the one drawing the board.
     private var isWindowBoardShown: Bool {
-        guard is3DBoardActive, !isBoardPlacedInSpace else { return false }
+        is3DBoardActive && !isBoardPlacedInSpace && !isBoardSlotObscured
+    }
+
+    /// True while a sheet or the main menu covers the window.
+    ///
+    /// The window's content stands in front of the plane those are presented
+    /// on, the board most of all, so a board left in its slot comes out in
+    /// front of them rather than behind. It clears for the duration instead:
+    /// there's no putting it behind a sheet.
+    ///
+    /// The header's menu isn't in this list — it opens clear of the window
+    /// entirely, so there's nothing for the board to be in front of.
+    private var isBoardSlotObscured: Bool {
         #if os(visionOS)
-        // The board stands in front of the window rather than on it, so it
-        // draws over anything the system layers on top — there's no putting it
-        // behind a sheet. It steps aside for the duration instead.
-        return !isSettingsPresented && !isGameHistoryPresented && !isRulesPresented && !isMainMenuPresented
+        return isSettingsPresented
+            || isGameHistoryPresented
+            || isRulesPresented
+            || isMainMenuPresented
         #else
-        return true
+        return false
         #endif
     }
 
@@ -563,11 +584,18 @@ struct ContentView: View {
         game.isGameOver || challengeFailed
     }
 
-    /// True while the result belongs on the anchored board instead of in the
-    /// window: with the board out in the room, a popup here would be behind the
-    /// player rather than where they're looking.
+    /// True while the result belongs on the board itself rather than in a panel
+    /// over the window. Out in the room, a window popup would be behind the
+    /// player rather than where they're looking; in the window, a flat panel
+    /// gets run through by a board that leans out toward the viewer. Either
+    /// way the board is the place for it, and it's carried there by
+    /// `spatialEndGameBanner`.
     private var isEndGameShownOnBoard: Bool {
-        isBoardPlacedInSpace
+        #if os(visionOS)
+        return is3DBoardActive
+        #else
+        return false
+        #endif
     }
 
     private var endGameTitle: String {
@@ -755,7 +783,14 @@ struct ContentView: View {
 
                 #if os(visionOS)
                 if isBoardPlacedInSpace {
+                    // Clears for sheets and the main menu, the same as the
+                    // board it stands in for: the window's content is in front
+                    // of the plane they're presented on, so it reads through
+                    // them rather than behind. Not for the header's menu, which
+                    // opens clear of the window and has nothing to collide
+                    // with.
                     spatialBoardPlaceholder(boardHeight: boardHeight)
+                        .opacity(isBoardSlotObscured ? 0 : 1)
                 }
                 #endif
 
@@ -900,11 +935,11 @@ struct ContentView: View {
         .accessibilityLabel("Turn and resize the board")
     }
 
-    /// The result panel the anchored board floats above itself, or `nil`
-    /// whenever it belongs in the window instead (board returned, menu open) or
-    /// the game is still running.
+    /// The result panel the board carries — floating above it out in the room,
+    /// standing in front of it in the window. `nil` while the game is still
+    /// running, while the menu is up, or when there's no 3D board to carry it.
     private var spatialEndGameBanner: SpatialBoardModel.EndGameBanner? {
-        guard isBoardPlacedInSpace, isGameFinished, !isMainMenuPresented else { return nil }
+        guard is3DBoardActive, isGameFinished, !isMainMenuPresented else { return nil }
 
         return SpatialBoardModel.EndGameBanner(
             title: endGameTitle,
@@ -1126,7 +1161,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                             .padding(.horizontal, 16)
-                            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1140,7 +1175,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                             .padding(.horizontal, 16)
-                            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .mancalaGlassEffect(tint: storeTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1155,7 +1190,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .padding(.horizontal, 16)
-                        .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .mancalaGlassEffect(tint: playableTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1274,7 +1309,7 @@ struct ContentView: View {
             }
             .padding(.vertical, 13)
             .padding(.horizontal, 18)
-            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
         .mancalaGlassEffect(tint: isCurrent ? playableTint : pitTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1313,7 +1348,7 @@ struct ContentView: View {
             }
             .padding(.vertical, 13)
             .padding(.horizontal, 18)
-            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
         .mancalaGlassEffect(tint: activeChallenge != nil ? playableTint : pitTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1353,9 +1388,10 @@ struct ContentView: View {
                 .foregroundStyle(secondaryText)
                 .padding(.vertical, 10)
                 .padding(.horizontal, 14)
-                .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
+            .hoverShape(cornerRadius: 14)
             .accessibilityLabel("Back to menu")
         }
     }
@@ -1396,7 +1432,7 @@ struct ContentView: View {
             }
             .padding(.vertical, 13)
             .padding(.horizontal, 18)
-            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
         .mancalaGlassEffect(tint: isCompleted ? currentStoreTint : pitTint, cornerRadius: 18, role: .control, interactive: true)
@@ -1432,9 +1468,10 @@ struct ContentView: View {
             .foregroundStyle(secondaryText)
             .frame(width: 72)
             .padding(.vertical, 8)
-            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
+        .hoverShape(cornerRadius: 16)
         .accessibilityLabel(title)
     }
 
@@ -1636,14 +1673,106 @@ struct ContentView: View {
             .accessibilityLabel(accessibilityLabel)
     }
 
+    /// The overflow menu behind the header's gear.
+    ///
+    /// A plain `Menu` everywhere but visionOS. There, the window's content
+    /// stands in front of the plane the system presents menus on — the board
+    /// most of all — so the menu comes out from behind the board and the panel
+    /// beneath it. Nothing reports when a `Menu` opens, so there's no moment to
+    /// clear the way; a popover driven by state gives us one.
+    @ViewBuilder
+    private var headerOverflowMenu: some View {
+        #if os(visionOS)
+        Button {
+            isHeaderMenuPresented = true
+        } label: {
+            headerIcon("gearshape")
+        }
+        .buttonStyle(.plain)
+        .hoverShape(Circle())
+        .accessibilityLabel("More options")
+        .popover(isPresented: $isHeaderMenuPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+                headerMenuItems
+            }
+            .buttonStyle(.plain)
+            .labelStyle(HeaderMenuLabelStyle())
+            .padding(.vertical, 10)
+            .frame(width: 260)
+        }
+        #else
+        Menu {
+            headerMenuItems
+        } label: {
+            headerIcon("gearshape")
+        }
+        .buttonStyle(.plain)
+        .hoverShape(Circle())
+        .accessibilityLabel("More options")
+        #endif
+    }
+
+    /// Shared by both presentations, so the two can't drift apart.
+    @ViewBuilder
+    private var headerMenuItems: some View {
+        Button {
+            dismissHeaderMenu()
+            openMainMenu()
+        } label: {
+            Label("Main Menu", systemImage: "house")
+        }
+
+        Button {
+            dismissHeaderMenu()
+            isRulesPresented = true
+        } label: {
+            Label("Rules", systemImage: "book.closed")
+        }
+
+        Button {
+            dismissHeaderMenu()
+            requestHint()
+        } label: {
+            Label(isHintSearching ? "Finding Hint" : "Hint", systemImage: "lightbulb")
+        }
+        .disabled(!canRequestHint)
+
+        Button {
+            dismissHeaderMenu()
+            isGameHistoryPresented = true
+        } label: {
+            Label("Game History", systemImage: "clock.arrow.circlepath")
+        }
+
+        Button {
+            dismissHeaderMenu()
+            isSettingsPresented = true
+        } label: {
+            Label("Settings", systemImage: "gearshape")
+        }
+
+        Button(role: .destructive) {
+            dismissHeaderMenu()
+            resetCurrentGame()
+        } label: {
+            Label("Reset Game", systemImage: "arrow.counterclockwise")
+        }
+        .disabled(isAnimatingMove || gameMode == .onlineMultiplayer)
+    }
+
+    /// A `Menu` closes itself when an item is chosen; the popover doesn't.
+    private func dismissHeaderMenu() {
+        #if os(visionOS)
+        isHeaderMenuPresented = false
+        #endif
+    }
+
     private func headerIcon(_ systemName: String) -> some View {
         Image(systemName: systemName)
             .font(.system(size: 19, weight: .medium))
             .foregroundStyle(primaryText)
             .frame(width: 44, height: 44)
-            // Round, like the system's own icon buttons: a square highlight
-            // around a lone glyph reads as a misfit.
-            .contentShape([.interaction, .hoverEffect], Circle())
+            .contentShape(Circle())
             .playerFacingRotation(tableRotationDegrees)
     }
 
@@ -1678,6 +1807,7 @@ struct ContentView: View {
                         headerIcon("arrow.uturn.backward")
                     }
                     .buttonStyle(.plain)
+                    .hoverShape(Circle())
                     .opacity(canUndoTurn ? 1 : 0.35)
                     .disabled(!canUndoTurn)
                     .accessibilityLabel("Undo last turn")
@@ -1690,6 +1820,7 @@ struct ContentView: View {
                         headerIcon(isZeroPlayerPaused ? "play.fill" : "pause.fill")
                     }
                     .buttonStyle(.plain)
+                    .hoverShape(Circle())
                     .opacity(isAnimatingMove || game.isGameOver ? 0.35 : 1)
                     .disabled(isAnimatingMove || game.isGameOver)
                     .accessibilityLabel(isZeroPlayerPaused ? "Play zero player game" : "Pause zero player game")
@@ -1715,53 +1846,12 @@ struct ContentView: View {
                         headerIcon(prefersBoardInSpace ? "arrow.down.forward.and.arrow.up.backward" : "cube")
                     }
                     .buttonStyle(.plain)
+                    .hoverShape(Circle())
                     .accessibilityLabel(prefersBoardInSpace ? "Return board to window" : "Place board in your space")
                 }
                 #endif
 
-                Menu {
-                    Button {
-                        openMainMenu()
-                    } label: {
-                        Label("Main Menu", systemImage: "house")
-                    }
-
-                    Button {
-                        isRulesPresented = true
-                    } label: {
-                        Label("Rules", systemImage: "book.closed")
-                    }
-
-                    Button {
-                        requestHint()
-                    } label: {
-                        Label(isHintSearching ? "Finding Hint" : "Hint", systemImage: "lightbulb")
-                    }
-                    .disabled(!canRequestHint)
-
-                    Button {
-                        isGameHistoryPresented = true
-                    } label: {
-                        Label("Game History", systemImage: "clock.arrow.circlepath")
-                    }
-
-                    Button {
-                        isSettingsPresented = true
-                    } label: {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-
-                    Button(role: .destructive) {
-                        resetCurrentGame()
-                    } label: {
-                        Label("Reset Game", systemImage: "arrow.counterclockwise")
-                    }
-                    .disabled(isAnimatingMove || gameMode == .onlineMultiplayer)
-                } label: {
-                    headerIcon("gearshape")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("More options")
+                headerOverflowMenu
             }
         }
     }
@@ -2371,7 +2461,7 @@ struct ContentView: View {
             // gaze highlight falls back to the whole frame with a radius of the
             // system's choosing, which is neither this panel's size nor its
             // corners.
-            .contentShape([.interaction, .hoverEffect], RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
         .foregroundStyle(primaryText)
@@ -2434,7 +2524,7 @@ struct ContentView: View {
             .padding(.vertical, verticalInset)
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: minHeight, maxHeight: minHeight)
-            .contentShape([.interaction, .hoverEffect], pitHitShape)
+            .contentShape(pitHitShape)
             .mancalaGlassEffect(tint: isPlayable ? playableTint : pitTint, cornerRadius: 20, role: .pit, interactive: isPlayable, seed: index)
             .overlay {
                 if isHinted {
@@ -2456,7 +2546,10 @@ struct ContentView: View {
             }
         }
         .buttonStyle(.plain)
-        .contentShape([.interaction, .hoverEffect], pitHitShape)
+        .contentShape(pitHitShape)
+        // The pit's own surface is painted inside the label, so the shape it
+        // names there isn't the one the button style highlights; this is.
+        .hoverShape(pitHitShape)
         .disabled(!isPlayable)
         .recordCellFrame(id: index)
         .accessibilityLabel("\(displayName(for: owner)) pit with \(game.pits[index]) stones")
@@ -3438,6 +3531,27 @@ struct ContentView: View {
 /// The visible side wall of an extruded rounded-rect slab: the band between the
 /// near edge of the top face and that same edge pushed down by `depth`. Corner
 /// curvature is sampled so the wall silhouette wraps around the rounded corners.
+/// Lays a menu item out the way a system menu row does: icon in a fixed
+/// gutter, title beside it, the row filling the popover's width so the whole
+/// strip is the target.
+private struct HeaderMenuLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 12) {
+            configuration.icon
+                .font(.system(size: 17))
+                .frame(width: 24)
+
+            configuration.title
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 16)
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .hoverShape(cornerRadius: 12)
+    }
+}
+
 private enum MancalaSurfaceRole {
     case board
     case pit
@@ -3465,11 +3579,28 @@ private struct MancalaSurfaceModifier: ViewModifier {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
     }
 
+    /// The board is a frame around the pit buttons rather than a control in its
+    /// own right, and the pits shape their own highlights.
+    private var isControlSurface: Bool {
+        if case .board = role {
+            return false
+        }
+        return true
+    }
+
+    @ViewBuilder
     func body(content: Content) -> some View {
+        // The gaze highlight is drawn around whatever carries the surface, so
+        // this is the level that gets to name its shape — a shape declared
+        // further in, on a button's label, isn't the one the button style
+        // reaches for, and the highlight falls back to a system pill that fits
+        // nothing it's over.
         if visualTheme == .flat {
             flatSurface(content)
+                .hoverShape(surfaceShape, isEnabled: isControlSurface)
         } else {
             glassSurface(content)
+                .hoverShape(surfaceShape, isEnabled: isControlSurface)
         }
     }
 
@@ -3790,6 +3921,24 @@ private struct MancalaSurfaceModifier: ViewModifier {
 }
 
 private extension View {
+    /// Shapes the gaze highlight to match the thing being looked at.
+    ///
+    /// Belongs outside the button, not inside its label: the button style draws
+    /// the highlight around the button as a whole, and only a shape declared at
+    /// that level is the one it uses.
+    @ViewBuilder
+    func hoverShape(_ shape: some Shape, isEnabled: Bool = true) -> some View {
+        if isEnabled {
+            contentShape(.hoverEffect, shape)
+        } else {
+            self
+        }
+    }
+
+    func hoverShape(cornerRadius: CGFloat) -> some View {
+        hoverShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+
     /// Moves a view toward or away from the viewer, in points. Only visionOS
     /// has anywhere to move it to; everywhere else this is the view itself.
     @ViewBuilder

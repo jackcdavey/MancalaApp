@@ -24,11 +24,21 @@ struct Board3DView: View {
     let boardMaterial: BoardMaterialStyle
     let scene: BoardScene
 
+    /// The board's result banner rides in the board's own scene rather than
+    /// over it as window content: a panel drawn flat on the window is run
+    /// through by a board that leans out toward the viewer, and no amount of
+    /// nudging it forward in the window's depth fixes that reliably. In here,
+    /// the renderer sorts the two.
+    @Environment(SpatialBoardModel.self) private var spatialBoard
+
     /// Scaled and centered within the window's bounds.
     @State private var boardHolder = Entity()
     /// Carries the lean and the pass-and-play flip, so neither fights the
     /// fitting pass that owns the holder's scale and position.
     @State private var boardLean = Entity()
+    /// Billboarded host for the result banner, kept out of `boardHolder` so
+    /// shrinking the board doesn't shrink the result along with it.
+    @State private var bannerAnchor = Entity()
 
     /// How far back the board is leaned toward the viewer. Lying back matches
     /// `BoardScene`'s camera pitch on iOS, so a board across a wide window is
@@ -51,7 +61,15 @@ struct Board3DView: View {
     /// Not private: it's the depth of the window's content as a whole, so
     /// anything the window layers over the board inherits it (see
     /// `ContentView`'s main menu).
-    static let windowDepth: CGFloat = 200
+    static let windowDepth: CGFloat = boardDepth + bannerDepth
+    /// The share of that depth the board itself may fill.
+    private static let boardDepth: CGFloat = 200
+    /// The share kept clear in front of the board, so the result banner has
+    /// somewhere to sit that's ahead of the board and still inside the window's
+    /// bounds.
+    private static let bannerDepth: CGFloat = 60
+    /// Gap between the board's nearest point and the banner.
+    private static let bannerClearance: Float = 0.008
     /// Clearance kept between the board and the edges of its bounds. Generous,
     /// because the board stands in front of the window rather than on it: it's
     /// nearer the eye than the glass is, so it projects bigger than the box it
@@ -69,9 +87,16 @@ struct Board3DView: View {
                 boardLean.orientation = orientation
                 boardHolder.addChild(boardLean)
                 content.add(boardHolder)
+
+                bannerAnchor.components.set(BillboardComponent())
+                bannerAnchor.components.set(ViewAttachmentComponent(rootView: banner))
+                bannerAnchor.isEnabled = false
+                content.add(bannerAnchor)
+
                 fitBoard(content: content, proxy: proxy)
                 syncScene()
             } update: { content in
+                bannerAnchor.isEnabled = spatialBoard.endGame != nil
                 fitBoard(content: content, proxy: proxy)
                 syncScene()
             }
@@ -81,6 +106,12 @@ struct Board3DView: View {
         .onChange(of: flipped) { _, _ in settleLean() }
         .onChange(of: isPortrait) { _, _ in settleLean() }
         .accessibilityLabel("Mancala board")
+    }
+
+    /// The banner's content, re-evaluated by SwiftUI as the result changes;
+    /// the attachment hosts it as a live view.
+    private var banner: some View {
+        SpatialEndGameBanner(model: spatialBoard)
     }
 
     /// The board leaned back toward the viewer, turned end for end when the
@@ -134,11 +165,26 @@ struct Board3DView: View {
         // window's lower edge and the system handle below it.
         let extents = bounds.extents
         let usableHeight = max(extents.y - Self.bottomInset, 0.01)
-        let framed = min(extents.x / needed.x, usableHeight / needed.y) * Self.fitMargin
-        let deep = extents.z > 0.01 ? extents.z / needed.z : .greatestFiniteMagnitude
 
-        boardHolder.scale = SIMD3(repeating: max(min(framed, deep), 0.01))
-        boardHolder.position = bounds.center + SIMD3(0, Self.bottomInset / 2, 0)
+        // The board gets the back of the depth; the front is kept for the
+        // banner. Taken as a share of whatever depth the window granted, so the
+        // two stay in proportion however much that turns out to be.
+        let boardDepth = extents.z * Float(Self.boardDepth / Self.windowDepth)
+        let reserved = extents.z - boardDepth
+
+        let framed = min(extents.x / needed.x, usableHeight / needed.y) * Self.fitMargin
+        let deep = boardDepth > 0.01 ? boardDepth / needed.z : .greatestFiniteMagnitude
+        let scale = max(min(framed, deep), 0.01)
+
+        boardHolder.scale = SIMD3(repeating: scale)
+        boardHolder.position = bounds.center + SIMD3(0, Self.bottomInset / 2, -reserved / 2)
+
+        // Just ahead of the board's nearest point, wherever the fit put that.
+        bannerAnchor.position = SIMD3(
+            bounds.center.x,
+            bounds.center.y,
+            boardHolder.position.z + needed.z * scale / 2 + Self.bannerClearance
+        )
     }
 
     /// `portrait` stands the board on end for a tall window, which the scene

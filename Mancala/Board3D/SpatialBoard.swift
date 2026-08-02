@@ -597,7 +597,7 @@ struct SpatialBoardView: View {
 /// The result panel floating over the anchored board: same wording, score, and
 /// actions as the window's end-game popup, rendered as a glass attachment so it
 /// reads against the room rather than against the board's wood.
-private struct SpatialEndGameBanner: View {
+struct SpatialEndGameBanner: View {
     let model: SpatialBoardModel
 
     var body: some View {
