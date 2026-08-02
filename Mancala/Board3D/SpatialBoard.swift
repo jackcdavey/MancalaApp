@@ -91,9 +91,61 @@ final class SpatialBoardModel {
         static let `default`: Float = 0.85
     }
 
+    /// True while the board is coasting to a stop after being spun, so the
+    /// volume applies each step as it lands instead of easing toward it.
+    private(set) var isSpinning = false
+    @ObservationIgnored private var spinTask: Task<Void, Never>?
+
+    /// How fast a throw has to be to become a spin, in radians per second.
+    /// Below this the player was placing the board, not spinning it.
+    private static let spinThreshold: Float = 0.7
+    /// Ceiling on a throw, about a turn and a quarter per second.
+    private static let spinSpeedLimit: Float = 10
+    /// Fraction of speed shed per second; a hard spin runs a little over a
+    /// full turn before it settles.
+    private static let spinDrag: Float = 1.3
+    /// Speed at which the board is close enough to stopped to stop.
+    private static let spinFloor: Float = 0.15
+
     /// Turn the board by `angle` radians about the vertical axis.
     func rotateBoard(by angle: Float) {
+        stopSpin()
         boardYaw = normalizedAngle(boardYaw + angle)
+    }
+
+    /// Let go of the board while turning it and it carries on, slowing under a
+    /// drag that's proportional to its speed — so it eases to rest rather than
+    /// stopping dead, and a harder throw both starts faster and runs longer.
+    func spinBoard(atSpeed speed: Float) {
+        stopSpin()
+        guard abs(speed) > Self.spinThreshold else { return }
+
+        isSpinning = true
+        spinTask = Task { [weak self] in
+            var speed = min(max(speed, -Self.spinSpeedLimit), Self.spinSpeedLimit)
+            var lastStep = CACurrentMediaTime()
+
+            while !Task.isCancelled, abs(speed) > Self.spinFloor {
+                try? await Task.sleep(for: .milliseconds(8))
+                guard let self, !Task.isCancelled else { return }
+
+                let now = CACurrentMediaTime()
+                // Clamped: a stalled frame shouldn't fling the board onward.
+                let step = Float(min(now - lastStep, 0.05))
+                lastStep = now
+
+                boardYaw = normalizedAngle(boardYaw + speed * step)
+                speed *= exp(-Self.spinDrag * step)
+            }
+
+            self?.isSpinning = false
+        }
+    }
+
+    func stopSpin() {
+        spinTask?.cancel()
+        spinTask = nil
+        isSpinning = false
     }
 
     /// Set the board's size, held inside the range the volume can show.
@@ -163,6 +215,11 @@ struct SpatialBoardView: View {
         /// Set once a swing takes the lead, holding whatever the twist had
         /// already turned so the handover doesn't jump.
         var swingOffset: Float?
+        /// How fast the board is being turned, in radians per second, for the
+        /// spin it's thrown into on release.
+        var speed: Float = 0
+        var lastStep: CFTimeInterval?
+        var lastDelta: Float = 0
     }
 
     /// Resting height of the banner's center above the board's top face, in
@@ -193,6 +250,8 @@ struct SpatialBoardView: View {
     /// Nearer than this to the axis of rotation, the hand's bearing around the
     /// board is too unstable to steer by.
     private static let minimumSwingRadius: Float = 0.05
+    /// Time constant for smoothing the turn rate a throw is measured from.
+    private static let speedSmoothing: Float = 0.05
 
     /// Points per meter, resolved for this scene, so the volume's resize
     /// limits can be written in real-world units like its default size is.
@@ -230,10 +289,11 @@ struct SpatialBoardView: View {
             .gesture(pitTouchGesture)
         }
         .onChange(of: model.boardYaw) { _, yaw in
-            // Fires for the rotate buttons in the main window, and once more
-            // when a twist commits — where the board is already at that
-            // heading, so it lands rather than animating to where it is.
-            applyYaw(yaw, animated: !isRotating)
+            // Fires for the rotate buttons in the main window, once more when a
+            // turn commits — where the board is already at that heading, so it
+            // lands rather than animating to where it is — and on every step of
+            // a spin, which is already paced and mustn't be eased on top.
+            applyYaw(yaw, animated: !isRotating && !model.isSpinning)
             isRotating = false
         }
         // The system floor plate that fades in whenever you look down toward
@@ -260,6 +320,7 @@ struct SpatialBoardView: View {
         .onDisappear {
             model.isOpen = false
             model.endGame = nil
+            model.stopSpin()
         }
     }
 
@@ -382,17 +443,23 @@ struct SpatialBoardView: View {
                 // unconditional write would re-run the view for no reason.
                 if !isRotating {
                     isRotating = true
+                    // Catching a spinning board stops it where it was caught,
+                    // so the turn carries on from under the hand.
+                    model.stopSpin()
                 }
                 boardRotator.orientation = Self.rotation(yaw: model.boardYaw + delta)
             }
             .onEnded { value in
                 let delta = turnDelta(for: value)
+                let speed = turn.speed
                 let suppressed = isRotationSuppressed || isScaling
                 isRotating = false
                 isRotationSuppressed = false
                 turn = TurnState()
                 guard !suppressed else { return }
                 model.rotateBoard(by: delta)
+                // Let go mid-turn and the board keeps going.
+                model.spinBoard(atSpeed: speed)
             }
     }
 
@@ -420,7 +487,25 @@ struct SpatialBoardView: View {
         // Once swinging, the wrist is along for the ride: it follows the arc of
         // the arm, so counting it again would turn the board twice as far as
         // the hand went.
-        return state.swingOffset.map { state.swing + $0 } ?? twist
+        let delta = state.swingOffset.map { state.swing + $0 } ?? twist
+
+        // Turn rate, smoothed over roughly the last few frames so one ragged
+        // sample can't decide the throw. The smoothing is measured in time
+        // rather than in frames, so pausing before letting go bleeds the speed
+        // away — hold still for a moment and the board stays put.
+        let now = CACurrentMediaTime()
+        if let lastStep = state.lastStep {
+            let step = Float(now - lastStep)
+            if step > 0.001 {
+                let sampled = (delta - state.lastDelta) / step
+                let carried = exp(-step / Self.speedSmoothing)
+                state.speed = state.speed * carried + sampled * (1 - carried)
+            }
+        }
+        state.lastStep = now
+        state.lastDelta = delta
+
+        return delta
     }
 
     /// The pinching hand's bearing around the board's axis of rotation, or
