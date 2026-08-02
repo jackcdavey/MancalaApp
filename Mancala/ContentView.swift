@@ -74,6 +74,9 @@ struct ContentView: View {
     @Environment(SpatialBoardModel.self) private var spatialBoard
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
+    /// Where the player last left the board. Defaults to the window, so a first
+    /// launch is one window and nothing else in the room.
+    @AppStorage("prefersBoardInSpace") private var prefersBoardInSpace = false
     #else
     @State private var motionParallax = MotionParallaxController()
     #endif
@@ -164,18 +167,22 @@ struct ContentView: View {
                     returnToChallengeList()
                 }
             }
-            // The 3D theme lives in the room on visionOS; open the board
-            // volume on launch. If the user closes it, `isOpen` goes false
-            // and the window shows the 2D board instead.
-            if visualTheme == .liquidGlass {
-                setSpatialBoard(open: true)
-            }
         }
         .onChange(of: spatialSyncState, initial: true) { _, _ in
             syncSpatialBoard()
         }
-        .onChange(of: visualTheme) { _, theme in
-            setSpatialBoard(open: theme == .liquidGlass)
+        .onChange(of: shouldPlaceBoardInSpace, initial: true) { _, wanted in
+            setSpatialBoard(open: wanted)
+        }
+        .onChange(of: spatialBoard.isOpen) { _, isOpen in
+            // The volume can also be closed from its own window bar. That's
+            // the player putting the board away, same as the button in here,
+            // so it's remembered the same way — but only when the board was
+            // meant to be out: this also fires when the menu or a theme change
+            // is what closed it.
+            if !isOpen, shouldPlaceBoardInSpace {
+                prefersBoardInSpace = false
+            }
         }
         .onChange(of: spatialEndGameBanner, initial: true) { _, banner in
             spatialBoard.endGame = banner
@@ -357,6 +364,16 @@ struct ContentView: View {
         return false
         #endif
     }
+
+    #if os(visionOS)
+    /// Whether the board volume should be open right now. The board starts in
+    /// the window and goes out into the room only if that's where the player
+    /// last left it — and it comes back in for the main menu, which is a
+    /// window's worth of UI on its own and has no board to show.
+    private var shouldPlaceBoardInSpace: Bool {
+        is3DBoardActive && prefersBoardInSpace && !isMainMenuPresented
+    }
+    #endif
 
     /// True while the window is the one drawing the board.
     private var isWindowBoardShown: Bool {
@@ -821,7 +838,7 @@ struct ContentView: View {
             }
 
             Button {
-                setSpatialBoard(open: false)
+                prefersBoardInSpace = false
             } label: {
                 Label("Return Board to Window", systemImage: "arrow.down.forward.and.arrow.up.backward")
             }
@@ -1681,12 +1698,15 @@ struct ContentView: View {
                 #if os(visionOS)
                 if visualTheme == .liquidGlass {
                     Button {
-                        setSpatialBoard(open: !spatialBoard.isOpen)
+                        prefersBoardInSpace.toggle()
                     } label: {
-                        headerIcon(spatialBoard.isOpen ? "arrow.down.forward.and.arrow.up.backward" : "cube")
+                        // Follows the preference rather than the volume, so the
+                        // button answers the tap that set it instead of waiting
+                        // a frame for the window to come and go.
+                        headerIcon(prefersBoardInSpace ? "arrow.down.forward.and.arrow.up.backward" : "cube")
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(spatialBoard.isOpen ? "Return board to window" : "Place board in your space")
+                    .accessibilityLabel(prefersBoardInSpace ? "Return board to window" : "Place board in your space")
                 }
                 #endif
 
