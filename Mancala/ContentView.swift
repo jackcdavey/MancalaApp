@@ -1229,41 +1229,43 @@ struct ContentView: View {
     /// running—and the 3D board keeps warming up—underneath, hidden by the
     /// menu's own copy of the page background.
     private var mainMenu: some View {
-        GeometryReader { proxy in
-            ZStack {
-                menuBackground
+        ZStack {
+            menuBackground
 
-                ScrollView(showsIndicators: false) {
-                    Group {
-                        if isMainMenuShowingChallenges {
-                            challengeListPage
-                                .transition(.move(edge: .trailing).combined(with: .opacity))
-                        } else {
-                            VStack(spacing: 30) {
-                                mainMenuHeader
-
-                                VStack(spacing: 12) {
-                                    ForEach(GameMode.allCases) { mode in
-                                        mainMenuModeButton(for: mode)
-                                    }
-
-                                    mainMenuChallengesButton
-                                }
-
-                                mainMenuUtilityRow
-                            }
-                            .transition(.move(edge: .leading).combined(with: .opacity))
-                        }
-                    }
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 32)
-                    .frame(maxWidth: 440)
-                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            Group {
+                if isMainMenuShowingChallenges {
+                    challengeListPage
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else {
+                    mainMenuPage
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                 }
-                .animation(.spring(response: 0.34, dampingFraction: 0.88), value: isMainMenuShowingChallenges)
             }
+            .frame(maxWidth: 440)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(.spring(response: 0.34, dampingFraction: 0.88), value: isMainMenuShowingChallenges)
         }
         .accessibilityElement(children: .contain)
+    }
+
+    /// Fixed (never scrolling) landing page—the mode list is short enough to
+    /// always fit, and a bouncing title reads as a bug rather than a feature.
+    private var mainMenuPage: some View {
+        VStack(spacing: 30) {
+            mainMenuHeader
+
+            VStack(spacing: 12) {
+                ForEach(GameMode.allCases) { mode in
+                    mainMenuModeButton(for: mode)
+                }
+
+                mainMenuChallengesButton
+            }
+
+            mainMenuUtilityRow
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 32)
     }
 
     private var mainMenuHeader: some View {
@@ -1367,6 +1369,8 @@ struct ContentView: View {
         .accessibilityLabel("Challenges. \(completedCount) of \(ChallengeCatalog.all.count) complete")
     }
 
+    /// Only the challenge rows scroll—the catalog grows over time, but the
+    /// title and the way back out stay pinned.
     private var challengeListPage: some View {
         VStack(spacing: 24) {
             VStack(spacing: 6) {
@@ -1379,12 +1383,19 @@ struct ContentView: View {
                     .tracking(2.4)
                     .foregroundStyle(secondaryText.opacity(0.9))
             }
+            .padding(.horizontal, 28)
+            .padding(.top, 32)
 
-            VStack(spacing: 12) {
-                ForEach(Array(ChallengeCatalog.all.enumerated()), id: \.element.id) { index, challenge in
-                    challengeRow(challenge, number: index + 1)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 12) {
+                    ForEach(Array(ChallengeCatalog.all.enumerated()), id: \.element.id) { index, challenge in
+                        challengeRow(challenge, number: index + 1)
+                    }
                 }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 4)
             }
+            .scrollBounceBehavior(.basedOnSize)
 
             Button {
                 isMainMenuShowingChallenges = false
@@ -1405,6 +1416,7 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .hoverShape(cornerRadius: 14)
             .accessibilityLabel("Back to menu")
+            .padding(.bottom, 32)
         }
     }
 
