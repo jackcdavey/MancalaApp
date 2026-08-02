@@ -6,9 +6,11 @@ import SwiftUI
 /// the trip is made) are drawn from shuffled decks so the loop never repeats
 /// itself the same way twice.
 ///
-/// Every few cycles a `Routine` runs instead: a longer scripted set piece—the
-/// pebbles gather into a wheel and roll clean off one edge of the screen and
-/// back on from the other, or trade swings like a Newton's cradle.
+/// Every few cycles a `Routine` runs instead: a longer scripted set piece. They
+/// gather into a wheel and roll clean off one edge of the screen and back on
+/// from the other, leapfrog over each other down the row, trade swings like a
+/// Newton's cradle, turn as a carousel, spiral into a huddle and burst out
+/// again, or rock the row to a standstill.
 ///
 /// Touching the stage shoves them: every pebble takes an impulse away from the
 /// finger, falling off with distance, and then rolls back to wherever the idle
@@ -250,7 +252,7 @@ struct MenuPebbleStage: View {
                 if routines.isEmpty {
                     routines = Routine.all.shuffled()
                 }
-                cyclesUntilRoutine = Int.random(in: 3...6)
+                cyclesUntilRoutine = Int.random(in: 2...5)
                 guard await perform(routines.removeLast()) else { return }
                 continue
             }
@@ -379,7 +381,7 @@ extension MenuPebbleStage {
     fileprivate struct Routine {
         let steps: [Step]
 
-        static let all: [Routine] = [.wheel, .cradle]
+        static let all: [Routine] = [.wheel, .cradle, .leapfrog, .carousel, .vortex, .seesaw]
 
         /// Radius of the wheel, and the roll that carries it a whole number of
         /// turns—landing on a multiple of 360° is what lets the group snap back
@@ -460,8 +462,134 @@ extension MenuPebbleStage {
                  hold: 2.2)
         ])
 
+        /// Each pebble in turn arcs over the top of the row to the far end while
+        /// everyone else slides down a place. Five hops puts every pebble back
+        /// where it started, so the routine closes itself.
+        static let leapfrog: Routine = {
+            let slots = Formation.home.positions
+            let apex = CGPoint(x: 0, y: -24)
+            var slotOf = Array(0..<Layout.count)
+
+            var steps = [
+                Step(points: slots,
+                     motion: Motion(animation: .spring(response: 0.50, dampingFraction: 0.85), stagger: 0.04),
+                     rolls: true,
+                     hold: 0.55)
+            ]
+
+            for flyer in 0..<Layout.count {
+                var rising = [CGPoint](repeating: .zero, count: Layout.count)
+                for index in 0..<Layout.count where index != flyer {
+                    // The flyer is always the one currently in slot 0, so no one
+                    // else is ever asked to step off the left end.
+                    slotOf[index] = max(slotOf[index] - 1, 0)
+                    rising[index] = slots[slotOf[index]]
+                }
+                rising[flyer] = apex
+                steps.append(Step(points: rising,
+                                  motion: Motion(animation: .easeOut(duration: 0.26), stagger: 0),
+                                  rolls: true,
+                                  hold: 0.26))
+
+                slotOf[flyer] = Layout.count - 1
+                var landing = rising
+                landing[flyer] = slots[slotOf[flyer]]
+                steps.append(Step(points: landing,
+                                  motion: Motion(animation: .easeIn(duration: 0.24), stagger: 0),
+                                  rolls: true,
+                                  hold: 0.24))
+            }
+
+            steps.append(Step(points: slots,
+                              motion: Motion(animation: .spring(response: 0.55, dampingFraction: 0.80), stagger: 0.04),
+                              rolls: true,
+                              hold: 2.2))
+            return Routine(steps: steps)
+        }()
+
+        /// A fairground turn: the ring breathes wider and back while the whole
+        /// group rotates two full times.
+        static let carousel = Routine(steps: [
+            Step(points: ring(13),
+                 motion: Motion(animation: .spring(response: 0.50, dampingFraction: 0.85), stagger: 0.04),
+                 rolls: true,
+                 hold: 0.7),
+            Step(points: ring(spinningRadius),
+                 spin: 360,
+                 motion: Motion(animation: .easeInOut(duration: 1.0), stagger: 0),
+                 groupAnimation: .easeInOut(duration: 1.0),
+                 hold: 1.0),
+            Step(points: ring(13),
+                 spin: 720,
+                 motion: Motion(animation: .easeInOut(duration: 1.0), stagger: 0),
+                 groupAnimation: .easeInOut(duration: 1.0),
+                 hold: 1.05),
+            Step(points: Formation.home.positions,
+                 spin: 0,
+                 motion: Motion(animation: .spring(response: 0.60, dampingFraction: 0.78), stagger: 0.05),
+                 groupAnimation: .linear(duration: 0.001),
+                 rolls: true,
+                 hold: 2.2)
+        ])
+
+        /// Spiral inward to a huddle, hang there a beat, then burst back out.
+        static let vortex = Routine(steps: [
+            Step(points: ring(spinningRadius),
+                 motion: Motion(animation: .spring(response: 0.50, dampingFraction: 0.80), stagger: 0.05),
+                 rolls: true,
+                 hold: 0.5),
+            Step(points: ring(6),
+                 spin: 720,
+                 motion: Motion(animation: .easeIn(duration: 0.85), stagger: 0),
+                 groupAnimation: .easeIn(duration: 0.85),
+                 hold: 0.9),
+            // A beat of stillness makes the burst land harder.
+            Step(hold: 0.3),
+            Step(points: ring(spinningRadius),
+                 spin: 1080,
+                 motion: Motion(animation: .easeOut(duration: 0.5), stagger: 0),
+                 groupAnimation: .easeOut(duration: 0.5),
+                 hold: 0.55),
+            Step(points: Formation.home.positions,
+                 spin: 0,
+                 motion: Motion(animation: .spring(response: 0.62, dampingFraction: 0.72), stagger: 0.05),
+                 groupAnimation: .linear(duration: 0.001),
+                 rolls: true,
+                 hold: 2.2)
+        ])
+
+        /// The row spreads into a beam and rocks itself to a standstill.
+        static let seesaw = Routine(steps: [
+            Step(points: line([-62, -31, 0, 31, 62]),
+                 motion: Motion(animation: .spring(response: 0.50, dampingFraction: 0.85), stagger: 0.04),
+                 rolls: true,
+                 hold: 0.45),
+            Step(spin: 17, groupAnimation: .spring(response: 0.50, dampingFraction: 0.60), hold: 0.6),
+            Step(spin: -17, groupAnimation: .spring(response: 0.55, dampingFraction: 0.55), hold: 0.7),
+            Step(spin: 11, groupAnimation: .spring(response: 0.50, dampingFraction: 0.55), hold: 0.55),
+            Step(spin: 0, groupAnimation: .spring(response: 0.70, dampingFraction: 0.50), hold: 0.7),
+            Step(points: Formation.home.positions,
+                 motion: Motion(animation: .spring(response: 0.60, dampingFraction: 0.80), stagger: 0.045),
+                 rolls: true,
+                 hold: 2.2)
+        ])
+
+        /// Widest a ring may be while the group is rotating. Bigger reads better
+        /// but a turning circle puts a pebble at the full radius straight down,
+        /// and below this the wordmark starts.
+        private static let spinningRadius: CGFloat = 20
+
         private static func line(_ xs: [CGFloat]) -> [CGPoint] {
             xs.map { CGPoint(x: $0, y: 0) }
+        }
+
+        /// A true circle, not an ellipse: a flattened ring looks like a
+        /// wobbling blob once the group starts turning.
+        private static func ring(_ radius: CGFloat) -> [CGPoint] {
+            [-90.0, -18, 54, 126, 198].map { angle in
+                let radians = angle * .pi / 180
+                return CGPoint(x: radius * CGFloat(cos(radians)), y: radius * CGFloat(sin(radians)))
+            }
         }
     }
 }
