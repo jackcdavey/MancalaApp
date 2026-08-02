@@ -6,6 +6,11 @@ import SwiftUI
 /// the trip is made) are drawn from shuffled decks so the loop never repeats
 /// itself the same way twice.
 ///
+/// Touching the stage shoves them: every pebble takes an impulse away from the
+/// finger, falling off with distance, and then rolls back to wherever the idle
+/// loop has since put them. Shoves stack on top of the loop rather than
+/// interrupting it, so the pebbles stay pushable at any moment.
+///
 /// The whole thing lives and dies with the menu: the drive loop is a `.task`,
 /// so entering a game or opening the challenge list cancels it, and coming back
 /// restarts from the resting row.
@@ -24,12 +29,27 @@ struct MenuPebbleStage: View {
     /// Accumulated spin per pebble, in degrees. Path-dependent, so it can't be
     /// derived from `formation` alone.
     @State private var roll = [Double](repeating: 0, count: Layout.count)
+    /// Displacement from the current formation caused by touches, and the spin
+    /// that displacement earned. Both ride on top of `formation`/`roll` so a
+    /// shove never has to fight the idle loop for the same piece of state.
+    @State private var impulse = [CGSize](repeating: .zero, count: Layout.count)
+    @State private var impulseRoll = [Double](repeating: 0, count: Layout.count)
+    @State private var impulseAnimation: Animation = Push.shove
+    @State private var lastPushPoint: CGPoint?
+    @State private var recoilTask: Task<Void, Never>?
 
     var body: some View {
-        ZStack {
-            ForEach(0..<Layout.count, id: \.self) { index in
-                pebble(index: index)
+        GeometryReader { proxy in
+            ZStack {
+                ForEach(0..<Layout.count, id: \.self) { index in
+                    pebble(index: index)
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            // The whole band takes touches, not just the pebbles—chasing a 10pt
+            // circle around isn't a game anyone wants to play.
+            .contentShape(Rectangle())
+            .gesture(pushGesture(in: proxy.size))
         }
         .frame(height: Layout.stageHeight)
         .frame(maxWidth: .infinity)
@@ -61,6 +81,11 @@ struct MenuPebbleStage: View {
             .shadow(color: .black.opacity(isDarkMode ? 0.32 : 0.15), radius: 2, x: 0, y: 1.5)
             .offset(x: position.x, y: position.y)
             .animation(travel, value: formation)
+            // Shove spin and shove displacement sit outside the idle loop's
+            // animation so a punch stays snappy even mid-drift.
+            .rotationEffect(.degrees(impulseRoll[index]))
+            .offset(x: impulse[index].width, y: impulse[index].height)
+            .animation(impulseAnimation, value: impulse[index])
     }
 
     /// Surface markings—the only reason rotation is visible at all on a circle.
@@ -91,6 +116,76 @@ struct MenuPebbleStage: View {
                 .frame(width: diameter * 0.28, height: diameter * 0.28)
                 .offset(x: -diameter * 0.20, y: -diameter * 0.22)
                 .blur(radius: 0.4)
+        }
+    }
+
+    // MARK: Touch
+
+    /// A zero-distance drag rather than a tap: the pebbles should scatter the
+    /// instant a finger lands, not when it lifts. Sweeping the finger keeps
+    /// shoving, so a drag ploughs a furrow through them.
+    private func pushGesture(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let point = CGPoint(x: value.location.x - size.width / 2,
+                                    y: value.location.y - size.height / 2)
+                if let last = lastPushPoint, hypot(point.x - last.x, point.y - last.y) < Push.resweep {
+                    return
+                }
+                lastPushPoint = point
+                shove(from: point, in: size)
+            }
+            .onEnded { _ in
+                lastPushPoint = nil
+            }
+    }
+
+    /// Pushes every pebble directly away from `point`, hardest for the ones
+    /// nearest it, then schedules the trip home.
+    private func shove(from point: CGPoint, in size: CGSize) {
+        recoilTask?.cancel()
+
+        let limitX = max(size.width / 2 - Push.margin, 0)
+        let limitY = max(size.height / 2 - Push.margin, 0)
+        var nextImpulse = impulse
+        var nextRoll = impulseRoll
+
+        for index in 0..<Layout.count {
+            let home = formation.positions[index]
+            let current = CGPoint(x: home.x + impulse[index].width, y: home.y + impulse[index].height)
+            var dx = current.x - point.x
+            var dy = current.y - point.y
+            var distance = hypot(dx, dy)
+
+            if distance < 0.01 {
+                // Dead-centre hit: send it somewhere rather than nowhere.
+                dx = index.isMultiple(of: 2) ? 1 : -1
+                dy = -0.35
+                distance = hypot(dx, dy)
+            }
+
+            let strength = Push.strength * CGFloat(exp(-Double(distance) / Double(Push.falloff)))
+            let target = CGPoint(
+                x: min(max(current.x + dx / distance * strength, -limitX), limitX),
+                y: min(max(current.y + dy / distance * strength, -limitY), limitY)
+            )
+
+            nextImpulse[index] = CGSize(width: target.x - home.x, height: target.y - home.y)
+            let radius = Layout.diameters[index] / 2
+            nextRoll[index] += Double((target.x - current.x) / radius) * (180 / .pi) * Layout.rollFactor
+        }
+
+        impulseAnimation = reduceMotion ? Push.calmShove : Push.shove
+        impulseRoll = nextRoll
+        impulse = nextImpulse
+
+        recoilTask = Task { @MainActor in
+            guard await pause(Push.hold) else { return }
+            impulseAnimation = reduceMotion ? Push.calmSettle : Push.settle
+            // Unwinding the spin as they come back keeps the roll honest—they
+            // rolled out, so they roll back.
+            impulseRoll = [Double](repeating: 0, count: Layout.count)
+            impulse = [CGSize](repeating: .zero, count: Layout.count)
         }
     }
 
@@ -178,6 +273,33 @@ extension MenuPebbleStage {
         /// Full physical rolling (`1.0`) spins fast enough to blur on long
         /// hops; this trims it back to something that reads as a roll.
         static let rollFactor: Double = 0.7
+    }
+}
+
+// MARK: - Touch response
+
+extension MenuPebbleStage {
+    fileprivate enum Push {
+        /// Displacement, in points, for a pebble the finger lands right on.
+        static let strength: CGFloat = 34
+        /// e-folding distance of the shove: a pebble this far from the touch
+        /// gets about a third of `strength`.
+        static let falloff: CGFloat = 38
+        /// Keeps shoved pebbles inside the stage instead of barging into the
+        /// wordmark below.
+        static let margin: CGFloat = 8
+        /// How far a finger must sweep before it counts as a fresh shove.
+        static let resweep: CGFloat = 26
+        /// Time the pebbles stay flung before heading home.
+        static let hold = 0.11
+
+        static let shove = Animation.spring(response: 0.20, dampingFraction: 0.58)
+        static let settle = Animation.spring(response: 0.60, dampingFraction: 0.62)
+        /// Reduce Motion still gets to push pebbles—direct manipulation is the
+        /// one kind of movement it isn't asking us to stop—just without the
+        /// overshoot.
+        static let calmShove = Animation.easeOut(duration: 0.24)
+        static let calmSettle = Animation.easeInOut(duration: 0.5)
     }
 }
 
