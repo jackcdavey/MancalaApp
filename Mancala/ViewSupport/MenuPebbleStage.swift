@@ -6,6 +6,10 @@ import SwiftUI
 /// the trip is made) are drawn from shuffled decks so the loop never repeats
 /// itself the same way twice.
 ///
+/// Every few cycles a `Routine` runs instead: a longer scripted set piece—the
+/// pebbles gather into a wheel and roll clean off one edge of the screen and
+/// back on from the other, or trade swings like a Newton's cradle.
+///
 /// Touching the stage shoves them: every pebble takes an impulse away from the
 /// finger, falling off with distance, and then rolls back to wherever the idle
 /// loop has since put them. Shoves stack on top of the loop rather than
@@ -24,14 +28,22 @@ struct MenuPebbleStage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var formation: Formation = .home
-    @State private var mood: Mood = .tumble
+    /// Where each pebble is headed, as an offset from the centre of the stage.
+    /// Formations and routines both just write into this.
+    @State private var pose = Formation.home.positions
+    @State private var motion = Motion(animation: Mood.tumble.travel, stagger: Mood.tumble.stagger)
+    /// Rigid-body transform of the whole group, used by routines that need true
+    /// circular motion—interpolating five positions would cut chords across the
+    /// arc, which reads as a wheel deflating rather than turning.
+    @State private var spin: Double = 0
+    @State private var travelX: CGFloat = 0
+    @State private var groupMotion: Animation = .linear(duration: 0.01)
     /// Accumulated spin per pebble, in degrees. Path-dependent, so it can't be
-    /// derived from `formation` alone.
+    /// derived from `pose` alone.
     @State private var roll = [Double](repeating: 0, count: Layout.count)
-    /// Displacement from the current formation caused by touches, and the spin
-    /// that displacement earned. Both ride on top of `formation`/`roll` so a
-    /// shove never has to fight the idle loop for the same piece of state.
+    /// Displacement from the current pose caused by touches, and the spin that
+    /// displacement earned. Both ride on top of `pose`/`roll` so a shove never
+    /// has to fight the idle loop for the same piece of state.
     @State private var impulse = [CGSize](repeating: .zero, count: Layout.count)
     @State private var impulseRoll = [Double](repeating: 0, count: Layout.count)
     @State private var impulseAnimation: Animation = Push.shove
@@ -48,6 +60,13 @@ struct MenuPebbleStage: View {
                     pebble(index: index)
                 }
             }
+            // Sized to the stage so the group turns about the stage centre, not
+            // about the bounding box of whatever pose it happens to be in.
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .rotationEffect(.degrees(spin))
+            .offset(x: travelX)
+            .animation(groupMotion, value: spin)
+            .animation(groupMotion, value: travelX)
             .frame(width: proxy.size.width, height: proxy.size.height)
             // The whole band takes touches, not just the pebbles—chasing a 10pt
             // circle around isn't a game anyone wants to play.
@@ -66,9 +85,9 @@ struct MenuPebbleStage: View {
 
     private func pebble(index: Int) -> some View {
         let diameter = Layout.diameters[index]
-        let position = formation.positions[index]
+        let position = pose[index]
         let tint = color(index).opacity(isDarkMode ? 0.82 : 0.92)
-        let travel = mood.travel.delay(Double(index) * mood.stagger)
+        let travel = motion.animation.delay(Double(index) * motion.stagger)
 
         return Circle()
             // Flat stones are matte by design (see `stoneView`); only the glass
@@ -89,7 +108,7 @@ struct MenuPebbleStage: View {
             .overlay { specular(diameter: diameter) }
             .shadow(color: .black.opacity(isDarkMode ? 0.32 : 0.15), radius: 2, x: 0, y: 1.5)
             .offset(x: position.x, y: position.y)
-            .animation(travel, value: formation)
+            .animation(travel, value: pose)
             // The shove rides outside the idle loop's animation so a punch
             // stays snappy even mid-drift.
             .offset(x: impulse[index].width, y: impulse[index].height)
@@ -162,7 +181,7 @@ struct MenuPebbleStage: View {
         var nextRoll = impulseRoll
 
         for index in 0..<Layout.count {
-            let home = formation.positions[index]
+            let home = pose[index]
             let current = CGPoint(x: home.x + impulse[index].width, y: home.y + impulse[index].height)
             var dx = current.x - point.x
             var dy = current.y - point.y
@@ -212,18 +231,31 @@ struct MenuPebbleStage: View {
 
     private func runIdleLoop() async {
         guard !reduceMotion, scenePhase == .active else {
-            formation = .home
+            restToHome()
             return
         }
 
         var shapes: [Formation] = []
         var moods: [Mood] = []
+        var routines: [Routine] = []
         var lastShape: Formation?
+        // Routines are the rare treat, so a few plain cycles come first.
+        var cyclesUntilRoutine = Int.random(in: 2...4)
 
         // Let the menu's own fade-in finish before anything moves.
         guard await pause(1.2) else { return }
 
         while !Task.isCancelled {
+            if cyclesUntilRoutine == 0 {
+                if routines.isEmpty {
+                    routines = Routine.all.shuffled()
+                }
+                cyclesUntilRoutine = Int.random(in: 3...6)
+                guard await perform(routines.removeLast()) else { return }
+                continue
+            }
+            cyclesUntilRoutine -= 1
+
             if shapes.isEmpty {
                 shapes = Formation.roaming.shuffled()
                 // `removeLast` draws from the end, so a repeat of the shape we
@@ -240,28 +272,55 @@ struct MenuPebbleStage: View {
             let nextShape = shapes.removeLast()
             lastShape = nextShape
 
-            // Set the mood first: the pebbles read it when building the
-            // animation for the formation change below.
-            mood = nextMood
-            move(to: nextShape, rolling: nextMood.rolls)
+            let nextMotion = Motion(animation: nextMood.travel, stagger: nextMood.stagger)
+            move(to: nextShape.positions, motion: nextMotion, rolling: nextMood.rolls)
             guard await pause(nextMood.settle + nextMood.hold) else { return }
 
-            move(to: .home, rolling: nextMood.rolls)
+            move(to: Formation.home.positions, motion: nextMotion, rolling: nextMood.rolls)
             guard await pause(nextMood.settle + nextMood.rest) else { return }
         }
     }
 
-    private func move(to next: Formation, rolling: Bool) {
+    /// Plays a scripted set piece step by step. Returns false if the loop was
+    /// cancelled part-way, in which case the view is going away anyway.
+    private func perform(_ routine: Routine) async -> Bool {
+        for step in routine.steps {
+            if let points = step.points {
+                move(to: points, motion: step.motion, rolling: step.rolls)
+            }
+            if step.spin != nil || step.travel != nil {
+                groupMotion = step.groupAnimation ?? step.motion.animation
+                if let spinTo = step.spin { spin = spinTo }
+                if let travelTo = step.travel { travelX = travelTo }
+            }
+            guard await pause(step.hold) else { return false }
+        }
+
+        // Every routine is written to land back at an upright, untranslated
+        // group, so clearing the transform here is a no-op on screen.
+        spin = 0
+        travelX = 0
+        return true
+    }
+
+    private func move(to points: [CGPoint], motion nextMotion: Motion, rolling: Bool) {
         if rolling {
-            let from = formation.positions
-            let to = next.positions
             for index in 0..<Layout.count {
-                let distance = to[index].x - from[index].x
+                let distance = points[index].x - pose[index].x
                 let radius = Layout.diameters[index] / 2
                 roll[index] += Double(distance / radius) * (180 / .pi) * Layout.rollFactor
             }
         }
-        formation = next
+        // Set the motion first: the pebbles read it when building the animation
+        // for the pose change below.
+        motion = nextMotion
+        pose = points
+    }
+
+    private func restToHome() {
+        spin = 0
+        travelX = 0
+        pose = Formation.home.positions
     }
 
     /// Returns false when the loop was cancelled mid-sleep.
@@ -286,6 +345,124 @@ extension MenuPebbleStage {
         /// Full physical rolling (`1.0`) spins fast enough to blur on long
         /// hops; this trims it back to something that reads as a roll.
         static let rollFactor: Double = 0.7
+    }
+}
+
+// MARK: - Routines
+
+extension MenuPebbleStage {
+    /// How a pose change is animated. Formations get theirs from a `Mood`;
+    /// routines carry one per step.
+    fileprivate struct Motion {
+        let animation: Animation
+        let stagger: Double
+    }
+
+    /// One beat of a set piece. `points` moves the pebbles individually;
+    /// `spin`/`travel` move the whole group as a rigid body. A step may do
+    /// either or both.
+    fileprivate struct Step {
+        var points: [CGPoint]?
+        var spin: Double?
+        var travel: CGFloat?
+        var motion = Motion(animation: .easeInOut(duration: 0.5), stagger: 0)
+        /// Overrides `motion.animation` for the group transform, which usually
+        /// wants a different curve than the pebbles' own scatter.
+        var groupAnimation: Animation?
+        var rolls = false
+        /// Seconds to wait before the next step begins.
+        var hold: Double
+    }
+
+    /// The occasional showpiece: longer, scripted, and rarer than a formation
+    /// cycle. Each one must finish with the group upright and untranslated.
+    fileprivate struct Routine {
+        let steps: [Step]
+
+        static let all: [Routine] = [.wheel, .cradle]
+
+        /// Radius of the wheel, and the roll that carries it a whole number of
+        /// turns—landing on a multiple of 360° is what lets the group snap back
+        /// to zero rotation without anything visibly moving.
+        private static let wheelRadius: CGFloat = 20
+        private static let wheelTurns: CGFloat = 2
+        private static var wheelTravel: CGFloat { 2 * .pi * wheelRadius * wheelTurns }
+        private static var wheelSpin: Double { Double(wheelTurns) * 360 }
+
+        /// Four pebbles on the rim, the fat middle one as the hub.
+        private static var wheelPose: [CGPoint] {
+            let r = wheelRadius * CGFloat(cos(Double.pi / 4))
+            return [
+                CGPoint(x: -r, y: r),
+                CGPoint(x: -r, y: -r),
+                .zero,
+                CGPoint(x: r, y: r),
+                CGPoint(x: r, y: -r)
+            ]
+        }
+
+        /// Gather into a wheel, roll off the right edge, come back on from the
+        /// left, and fall apart into the row again.
+        static let wheel = Routine(steps: [
+            Step(points: wheelPose,
+                 motion: Motion(animation: .spring(response: 0.55, dampingFraction: 0.80), stagger: 0.045),
+                 rolls: true,
+                 hold: 0.9),
+            Step(spin: wheelSpin,
+                 travel: wheelTravel,
+                 groupAnimation: .easeIn(duration: 1.15),
+                 hold: 1.2),
+            // Re-enter from the far side. Winding the rotation back the same
+            // amount means the return leg is another honest right-hand roll.
+            Step(spin: -wheelSpin,
+                 travel: -wheelTravel,
+                 groupAnimation: .linear(duration: 0.001),
+                 hold: 0.18),
+            Step(spin: 0,
+                 travel: 0,
+                 groupAnimation: .easeOut(duration: 1.2),
+                 hold: 1.25),
+            Step(points: Formation.home.positions,
+                 motion: Motion(animation: .spring(response: 0.62, dampingFraction: 0.75), stagger: 0.05),
+                 rolls: true,
+                 hold: 2.2)
+        ])
+
+        /// Newton's cradle: the outer pebbles trade a swing through the middle.
+        static let cradle = Routine(steps: [
+            Step(points: line([-64, -32, 0, 32, 64]),
+                 motion: Motion(animation: .spring(response: 0.50, dampingFraction: 0.85), stagger: 0.05),
+                 rolls: true,
+                 hold: 0.7),
+            Step(points: line([-98, -32, 0, 32, 64]),
+                 motion: Motion(animation: .easeOut(duration: 0.42), stagger: 0),
+                 rolls: true,
+                 hold: 0.46),
+            Step(points: line([-66, -32, 0, 32, 64]),
+                 motion: Motion(animation: .easeIn(duration: 0.24), stagger: 0),
+                 rolls: true,
+                 hold: 0.26),
+            Step(points: line([-66, -32, 0, 32, 98]),
+                 motion: Motion(animation: .easeOut(duration: 0.30), stagger: 0),
+                 rolls: true,
+                 hold: 0.34),
+            Step(points: line([-66, -32, 0, 32, 66]),
+                 motion: Motion(animation: .easeIn(duration: 0.26), stagger: 0),
+                 rolls: true,
+                 hold: 0.28),
+            Step(points: line([-98, -32, 0, 32, 66]),
+                 motion: Motion(animation: .easeOut(duration: 0.34), stagger: 0),
+                 rolls: true,
+                 hold: 0.42),
+            Step(points: Formation.home.positions,
+                 motion: Motion(animation: .spring(response: 0.60, dampingFraction: 0.78), stagger: 0.05),
+                 rolls: true,
+                 hold: 2.2)
+        ])
+
+        private static func line(_ xs: [CGFloat]) -> [CGPoint] {
+            xs.map { CGPoint(x: $0, y: 0) }
+        }
     }
 }
 
