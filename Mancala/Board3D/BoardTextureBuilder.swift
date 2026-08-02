@@ -174,10 +174,18 @@ enum BoardTextureBuilder {
                 ),
                 width: width, height: height
             )
+        case .terracotta:
+            return terracottaBaseColor(width: width, height: height)
         case .marble:
             return marbleBaseColor(width: width, height: height)
+        case .malachite:
+            return malachiteBaseColor(width: width, height: height)
         case .slate:
             return slateBaseColor(width: width, height: height)
+        case .obsidian:
+            return obsidianBaseColor(width: width, height: height)
+        case .brushedBrass:
+            return brushedBrassBaseColor(width: width, height: height)
         case .frostedGlass:
             return frostedGlassBaseColor(width: width, height: height)
         }
@@ -227,6 +235,54 @@ enum BoardTextureBuilder {
         return makeCGImage(pixels: pixels, width: width, height: height)
     }
 
+    /// Unglazed terracotta: warm fired clay, uneven in tone the way a kiln
+    /// leaves it, gritty with the sand in its body, and faintly ringed where a
+    /// wheel would have thrown it.
+    private static func terracottaBaseColor(width: Int, height: Int) -> CGImage? {
+        let clayNoise = ValueNoise(seed: 0x7E44A)
+        let gritNoise = ValueNoise(seed: 0xC1A47)
+        let field = sharedDepthField
+        let maxDepth = BoardLayout3D.maxWellDepth
+
+        let base = SIMD3<Float>(0.600, 0.325, 0.215)
+        let pale = SIMD3<Float>(0.765, 0.505, 0.355)
+
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            let v = (Float(y) + 0.5) / Float(height)
+            let pz = (v - 0.5) * BoardLayout3D.depth
+            for x in 0..<width {
+                let u = (Float(x) + 0.5) / Float(width)
+                let px = (u - 0.5) * BoardLayout3D.width
+
+                // Blotchy firing at two scales. One alone leaves the clay
+                // looking painted rather than fired.
+                let broad = clayNoise.fbm(px * 14, pz * 14, octaves: 3)
+                let local = clayNoise.fbm(px * 46, pz * 46, octaves: 2)
+                // Throwing rings across the short axis, wobbled so they don't
+                // read as machined.
+                let wobble = clayNoise.fbm(px * 3, pz * 12) * 2.2
+                let rings = sin(pz * 130 + wobble) * 0.5 + 0.5
+                // Sand in the clay body: a fine even grain, and the odd darker
+                // pit where a grain has burnt out.
+                let grain = (gritNoise.fbm(px * 380, pz * 380, octaves: 2) - 0.5) * 0.085
+                let pitting = max(gritNoise.fbm(px * 120 + 17, pz * 120, octaves: 2) - 0.60, 0) * 0.45
+
+                var color = simd_mix(
+                    base,
+                    pale,
+                    SIMD3(repeating: min(max(broad * 0.80 + local * 0.18 + rings * 0.18 - 0.10, 0), 1))
+                )
+                color += SIMD3(repeating: grain - pitting)
+
+                color *= bakedAO(field: field, u: u, v: v, maxDepth: maxDepth)
+
+                writePixel(&pixels, x: x, y: y, width: width, color: color)
+            }
+        }
+        return makeCGImage(pixels: pixels, width: width, height: height)
+    }
+
     /// Polished marble: near-white base crossed by thin veins carved with
     /// domain-warped `sin` turbulence.
     private static func marbleBaseColor(width: Int, height: Int) -> CGImage? {
@@ -262,6 +318,85 @@ enum BoardTextureBuilder {
         return makeCGImage(pixels: pixels, width: width, height: height)
     }
 
+    /// Malachite: deep green stone banded in concentric rings. The mineral
+    /// grows in rounded botryoidal masses, so the bands here are drawn as
+    /// distance from a handful of scattered centres rather than as straight
+    /// veins — no two sets of rings share a centre, which is what makes it read
+    /// as malachite rather than as contour lines.
+    private static func malachiteBaseColor(width: Int, height: Int) -> CGImage? {
+        let warpNoise = ValueNoise(seed: 0x4A11E)
+        let grainNoise = ValueNoise(seed: 0x2B7C3)
+        let field = sharedDepthField
+        let maxDepth = BoardLayout3D.maxWellDepth
+
+        let pale = SIMD3<Float>(0.315, 0.600, 0.420)
+        let deep = SIMD3<Float>(0.055, 0.215, 0.150)
+
+        /// A rounded mass of the mineral. Each one bands at its own rate, so
+        /// the board doesn't come out looking like a set of matching targets.
+        struct Botryoid {
+            let centre: SIMD2<Float>
+            let frequency: Float
+        }
+        // Kept coarse on purpose: a board is only two thirds of a metre across,
+        // and rings any tighter than this stop reading as stone and start
+        // reading as stripes, drowning the wells and the stones sitting in them.
+        let masses = [
+            Botryoid(centre: SIMD2(-0.27, 0.05), frequency: 140),
+            Botryoid(centre: SIMD2(-0.13, -0.08), frequency: 205),
+            Botryoid(centre: SIMD2(0.02, 0.07), frequency: 120),
+            Botryoid(centre: SIMD2(0.16, -0.06), frequency: 180),
+            Botryoid(centre: SIMD2(0.29, 0.09), frequency: 155)
+        ]
+
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            let v = (Float(y) + 0.5) / Float(height)
+            let pz = (v - 0.5) * BoardLayout3D.depth
+            for x in 0..<width {
+                let u = (Float(x) + 0.5) / Float(width)
+                let px = (u - 0.5) * BoardLayout3D.width
+
+                // Sampled through a drift rather than straight, so the joins
+                // between masses wander the way a mineral's do instead of
+                // meeting in the dead-straight creases a plain nearest-centre
+                // test leaves behind.
+                let drift = SIMD2(
+                    warpNoise.fbm(px * 6 + 11, pz * 6) - 0.5,
+                    warpNoise.fbm(px * 6, pz * 6 + 23) - 0.5
+                ) * 0.09
+                let point = SIMD2(px, pz) + drift
+
+                var nearest = Float.greatestFiniteMagnitude
+                var phase: Float = 0
+                for mass in masses {
+                    let distance = simd_length(point - mass.centre)
+                    if distance < nearest {
+                        nearest = distance
+                        phase = distance * mass.frequency
+                    }
+                }
+
+                let warp = warpNoise.fbm(px * 9, pz * 9, octaves: 4)
+                // Band spacing wanders within each mass too — evenly ruled
+                // rings read as machined.
+                let spacing = 1 + (warpNoise.fbm(px * 4 + 31, pz * 4) - 0.5) * 0.5
+                let bands = sin(phase * spacing + warp * 9)
+                // Sharpened so the pale bands stay narrow against the dark
+                // ground, the way the light layers do in the real stone.
+                let banding = powf(bands * 0.5 + 0.5, 3.0)
+                let grain = (grainNoise.fbm(px * 30, pz * 30, octaves: 2) - 0.5) * 0.06
+
+                var color = simd_mix(deep, pale, SIMD3(repeating: min(max(banding + grain, 0), 1)))
+
+                color *= bakedAO(field: field, u: u, v: v, maxDepth: maxDepth)
+
+                writePixel(&pixels, x: x, y: y, width: width, color: color)
+            }
+        }
+        return makeCGImage(pixels: pixels, width: width, height: height)
+    }
+
     /// Matte slate: dark, low-contrast stone with subtle cloudy mottling and
     /// faint lighter flecks.
     private static func slateBaseColor(width: Int, height: Int) -> CGImage? {
@@ -283,6 +418,82 @@ enum BoardTextureBuilder {
                 let cloud = (cloudNoise.fbm(px * 6, pz * 6, octaves: 4) - 0.5) * 0.09
                 let fleck = max(fleckNoise.fbm(px * 40, pz * 40, octaves: 2) - 0.62, 0) * 0.22
                 var color = base + SIMD3(repeating: cloud + fleck)
+
+                color *= bakedAO(field: field, u: u, v: v, maxDepth: maxDepth)
+
+                writePixel(&pixels, x: x, y: y, width: width, color: color)
+            }
+        }
+        return makeCGImage(pixels: pixels, width: width, height: height)
+    }
+
+    /// Obsidian: volcanic glass, all but black. Its colour carries almost
+    /// nothing — the finish reads by its reflections instead (see the near-zero
+    /// roughness in `BoardScene`) — so the base is a faint violet sheen along
+    /// the shell-shaped fracture lines and black everywhere else.
+    private static func obsidianBaseColor(width: Int, height: Int) -> CGImage? {
+        let warpNoise = ValueNoise(seed: 0x0B51D)
+        let dustNoise = ValueNoise(seed: 0x3D0FF)
+        let field = sharedDepthField
+        let maxDepth = BoardLayout3D.maxWellDepth
+
+        let base = SIMD3<Float>(0.042, 0.042, 0.052)
+        let sheen = SIMD3<Float>(0.088, 0.078, 0.118)
+
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            let v = (Float(y) + 0.5) / Float(height)
+            let pz = (v - 0.5) * BoardLayout3D.depth
+            for x in 0..<width {
+                let u = (Float(x) + 0.5) / Float(width)
+                let px = (u - 0.5) * BoardLayout3D.width
+
+                let warp = warpNoise.fbm(px * 6, pz * 6, octaves: 5) * 7
+                let flow = sin((px * 22 + pz * 9) + warp)
+                // The sheen is confined to the flow lines themselves and falls
+                // away fast either side, so it reads as banding in the glass
+                // rather than as a purple haze over it.
+                let away = powf(min(abs(flow), 1), 0.6)
+                let dust = (dustNoise.fbm(px * 50, pz * 50, octaves: 2) - 0.5) * 0.012
+
+                var color = simd_mix(sheen, base, SIMD3(repeating: away))
+                color += SIMD3(repeating: dust)
+
+                color *= bakedAO(field: field, u: u, v: v, maxDepth: maxDepth)
+
+                writePixel(&pixels, x: x, y: y, width: width, color: color)
+            }
+        }
+        return makeCGImage(pixels: pixels, width: width, height: height)
+    }
+
+    /// Brushed brass: warm metal, grained along the board's length. The
+    /// streaks come from sampling noise slowly along `x` and very fast across
+    /// `z`, which stretches it into lines rather than mottle; a broad sweep
+    /// underneath keeps it from reading as a uniform sheet.
+    private static func brushedBrassBaseColor(width: Int, height: Int) -> CGImage? {
+        let brushNoise = ValueNoise(seed: 0xB2A55)
+        let sweepNoise = ValueNoise(seed: 0x9F0E1)
+        let field = sharedDepthField
+        let maxDepth = BoardLayout3D.maxWellDepth
+
+        let light = SIMD3<Float>(0.865, 0.695, 0.345)
+        let dark = SIMD3<Float>(0.520, 0.385, 0.145)
+
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            let v = (Float(y) + 0.5) / Float(height)
+            let pz = (v - 0.5) * BoardLayout3D.depth
+            for x in 0..<width {
+                let u = (Float(x) + 0.5) / Float(width)
+                let px = (u - 0.5) * BoardLayout3D.width
+
+                let fine = brushNoise.fbm(px * 3, pz * 900, octaves: 2)
+                let coarse = brushNoise.fbm(px * 1.5, pz * 220, octaves: 2)
+                let sweep = (sweepNoise.fbm(px * 2.5, pz * 2.5, octaves: 3) - 0.5) * 0.22
+
+                let polish = min(max(fine * 0.45 + coarse * 0.35 + sweep + 0.12, 0), 1)
+                var color = simd_mix(dark, light, SIMD3(repeating: polish))
 
                 color *= bakedAO(field: field, u: u, v: v, maxDepth: maxDepth)
 

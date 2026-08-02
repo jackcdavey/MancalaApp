@@ -16,11 +16,19 @@ enum VisualTheme: String, CaseIterable, Identifiable {
 
 /// Surface finish for the 3D board slab. Each style maps to a procedurally
 /// generated base-color texture and a set of PBR parameters in `BoardScene`.
+///
+/// Ordered by family — woods, clay, stones, metal, glass — because `allCases`
+/// is what fills the Material picker. The setting persists by `rawValue`, so
+/// the order is free to change.
 enum BoardMaterialStyle: String, CaseIterable, Identifiable {
     case walnut
     case maple
+    case terracotta
     case marble
+    case malachite
     case slate
+    case obsidian
+    case brushedBrass
     case frostedGlass
 
     var id: String { rawValue }
@@ -29,9 +37,27 @@ enum BoardMaterialStyle: String, CaseIterable, Identifiable {
         switch self {
         case .walnut: "Walnut"
         case .maple: "Maple"
+        case .terracotta: "Terracotta"
         case .marble: "Marble"
+        case .malachite: "Malachite"
         case .slate: "Slate"
+        case .obsidian: "Obsidian"
+        case .brushedBrass: "Brushed Brass"
         case .frostedGlass: "Frosted Glass"
+        }
+    }
+
+    /// The finishes Settings offers. Withdrawn ones stay in `allCases` — they
+    /// still render, and anyone who already had one selected keeps it — this is
+    /// only what's on the menu now.
+    static var offered: [BoardMaterialStyle] {
+        allCases.filter(\.isOffered)
+    }
+
+    private var isOffered: Bool {
+        switch self {
+        case .slate, .frostedGlass: false
+        default: true
         }
     }
 }

@@ -177,6 +177,9 @@ final class BoardScene {
     @ObservationIgnored private var slab: ModelEntity?
     @ObservationIgnored private var appliedMaterial: BoardMaterialStyle?
     @ObservationIgnored private var materialCache: [BoardMaterialStyle: PhysicallyBasedMaterial] = [:]
+    /// Bakes currently running, so two callers asking for the same finish share
+    /// one bake instead of each starting their own.
+    @ObservationIgnored private var materialBakes: [BoardMaterialStyle: Task<PhysicallyBasedMaterial, Never>] = [:]
     /// Count of in-flight uncached material bakes; > 0 while at least one is
     /// running, so views can show a busy state instead of an unlabeled pause.
     private var pendingMaterialBakes = 0
@@ -455,12 +458,34 @@ final class BoardScene {
         case .maple:
             FinishSpec(roughness: 0.55, metallic: 0, clearcoat: 0.3, clearcoatRoughness: 0.45,
                        fallback: PlatformColor(red: 0.80, green: 0.70, blue: 0.52, alpha: 1))
+        case .terracotta:
+            // Unglazed, so nearly all diffuse: no clearcoat to speak of and a
+            // roughness high enough that it never catches a highlight.
+            FinishSpec(roughness: 0.92, metallic: 0, clearcoat: 0.05, clearcoatRoughness: 0.9,
+                       fallback: PlatformColor(red: 0.65, green: 0.37, blue: 0.25, alpha: 1))
         case .marble:
             FinishSpec(roughness: 0.18, metallic: 0, clearcoat: 0.6, clearcoatRoughness: 0.2,
                        fallback: PlatformColor(red: 0.88, green: 0.88, blue: 0.90, alpha: 1))
+        case .malachite:
+            // Polished like marble, a shade less mirror-like: the banding
+            // carries this finish, so the reflections stay out of its way.
+            FinishSpec(roughness: 0.20, metallic: 0, clearcoat: 0.6, clearcoatRoughness: 0.2,
+                       fallback: PlatformColor(red: 0.15, green: 0.42, blue: 0.30, alpha: 1))
         case .slate:
             FinishSpec(roughness: 0.85, metallic: 0, clearcoat: 0, clearcoatRoughness: 1.0,
                        fallback: PlatformColor(red: 0.16, green: 0.17, blue: 0.19, alpha: 1))
+        case .obsidian:
+            // The mirror end of the range, and the counterpart to slate's
+            // matte: near-black glass that shows itself entirely through what
+            // it reflects.
+            FinishSpec(roughness: 0.07, metallic: 0, clearcoat: 1.0, clearcoatRoughness: 0.05,
+                       fallback: PlatformColor(red: 0.05, green: 0.05, blue: 0.06, alpha: 1))
+        case .brushedBrass:
+            // The one metal in the set. Roughness in the middle of the range so
+            // the brushing reads as brushing — a polished mirror would lose the
+            // grain, and a rough one would lose the metal.
+            FinishSpec(roughness: 0.30, metallic: 0.9, clearcoat: 0.15, clearcoatRoughness: 0.5,
+                       fallback: PlatformColor(red: 0.72, green: 0.55, blue: 0.24, alpha: 1))
         case .frostedGlass:
             // Moderate roughness blurs the reflections (frosted, not clear); a
             // glossy clearcoat over the top keeps a wet sheen. Partially
@@ -520,29 +545,66 @@ final class BoardScene {
         pendingMaterialBakes += 1
         Task { [weak self] in
             guard let self else { return }
-            let material = await self.bakedMaterial(for: style)
+            let material = await self.material(for: style)
             self.pendingMaterialBakes -= 1
-            self.materialCache[style] = material
             if self.appliedMaterial == style {
                 self.slab?.model?.materials = [material]
             }
         }
     }
 
-    /// Bakes every not-yet-cached finish shortly after the board is built,
-    /// paced with a short yield between each so an already-open game stays
-    /// responsive while it happens in the background. Without this, the
-    /// first time a player picks an unfamiliar material in Settings incurs
-    /// the same bake `applyMaterial` would otherwise do inline right then —
-    /// which is the freeze this sidesteps by doing the work earlier and
-    /// piecemeal instead.
+    /// The cached material for a finish, baking it if this is the first ask.
+    ///
+    /// Everything that needs a material comes through here, so a finish is
+    /// never baked twice over: the selected finish is both applied on sight and
+    /// prewarmed, and those two would otherwise race each other into duplicate
+    /// bakes of the same 2048×1024 texture. A second caller arriving mid-bake
+    /// waits on the first one's task rather than starting its own.
+    private func material(for style: BoardMaterialStyle) async -> PhysicallyBasedMaterial {
+        if let cached = materialCache[style] {
+            return cached
+        }
+        if let inFlight = materialBakes[style] {
+            return await inFlight.value
+        }
+
+        let bake = Task { await bakedMaterial(for: style) }
+        materialBakes[style] = bake
+        let material = await bake.value
+        materialBakes[style] = nil
+        materialCache[style] = material
+        return material
+    }
+
+    /// Finishes baked ahead of being asked for, so switching to them in
+    /// Settings is instant. Everything else bakes on demand behind the spinner
+    /// `isSwitchingMaterial` drives.
+    ///
+    /// Keep this list short. Each entry costs a 2048×1024 bake shortly after
+    /// launch and a cached texture for the rest of the session, and visionOS
+    /// pays it twice once the board has been placed in the room — one scene for
+    /// the window, one for the volume. These two are here because `marble` is
+    /// the default finish and `walnut` is what `buildRoot` falls back to.
+    private static let prewarmedStyles: [BoardMaterialStyle] = [.walnut, .marble]
+
+    /// Bakes the finishes above shortly after the board is built, paced with a
+    /// short yield between each so an already-open game stays responsive while
+    /// it happens in the background. Without this, picking one of them in
+    /// Settings would incur the same bake `applyMaterial` does inline right
+    /// then — which is the freeze this sidesteps by doing the work earlier.
+    ///
+    /// The finish in use leads the list. It's the one the player will come back
+    /// to after trying others, so it's kept cached for the session rather than
+    /// left to be rebaked on the way back; `material(for:)` makes sure joining
+    /// the list doesn't duplicate the bake `applyMaterial` has already started
+    /// on it.
     private func prewarmRemainingMaterials() {
+        let styles = [appliedMaterial].compactMap { $0 } + Self.prewarmedStyles
         Task { [weak self] in
-            for style in BoardMaterialStyle.allCases {
+            for style in styles {
                 guard let self else { return }
                 guard self.materialCache[style] == nil else { continue }
-                let material = await self.bakedMaterial(for: style)
-                self.materialCache[style] = material
+                _ = await self.material(for: style)
                 try? await Task.sleep(for: .milliseconds(60))
             }
         }

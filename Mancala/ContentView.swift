@@ -322,6 +322,18 @@ struct ContentView: View {
         true
     }
 
+    /// The finishes the Material picker lists — plus whichever one is in use,
+    /// if it's since been withdrawn. Without that, a player who had a withdrawn
+    /// finish selected would face a picker with no row matching their setting,
+    /// showing blank and giving them nothing to change away from.
+    private var offeredMaterials: [BoardMaterialStyle] {
+        var styles = BoardMaterialStyle.offered
+        if !styles.contains(boardMaterialStyle) {
+            styles.append(boardMaterialStyle)
+        }
+        return styles
+    }
+
     private var shouldShowStatusPanel: Bool {
         gameMode == .singlePlayer || gameMode == .zeroPlayer || gameMode == .onlineMultiplayer
     }
@@ -1873,7 +1885,7 @@ struct ContentView: View {
 
                     if visualTheme == .liquidGlass {
                         Picker("Material", selection: $boardMaterialStyle) {
-                            ForEach(BoardMaterialStyle.allCases) { style in
+                            ForEach(offeredMaterials) { style in
                                 Text(style.title).tag(style)
                             }
                         }
