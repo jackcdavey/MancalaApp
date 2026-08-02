@@ -1269,16 +1269,14 @@ struct ContentView: View {
     }
 
     private var mainMenuHeader: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 9) {
-                ForEach(0..<5, id: \.self) { index in
-                    Circle()
-                        .fill(stoneColor(for: index).opacity(isDarkMode ? 0.82 : 0.92))
-                        .frame(width: index == 2 ? 13 : 10, height: index == 2 ? 13 : 10)
-                        .shadow(color: .black.opacity(isDarkMode ? 0.32 : 0.15), radius: 2, x: 0, y: 1.5)
-                }
-            }
-            .accessibilityHidden(true)
+        // Tight spacing: the pebble stage carries its own vertical breathing
+        // room so the pebbles have somewhere to roam. The negative padding
+        // gives back layout height the roaming rarely uses—pebbles still draw
+        // into the surrounding whitespace, they just stop reserving it, which
+        // matters on a page that never scrolls.
+        VStack(spacing: 2) {
+            MenuPebbleStage(color: { stoneColor(for: $0) }, isDarkMode: isDarkMode)
+                .padding(.vertical, -6)
 
             VStack(spacing: 6) {
                 Text(AppInfo.name)
