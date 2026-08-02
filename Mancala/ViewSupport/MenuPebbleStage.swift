@@ -35,6 +35,9 @@ struct MenuPebbleStage: View {
     @State private var impulse = [CGSize](repeating: .zero, count: Layout.count)
     @State private var impulseRoll = [Double](repeating: 0, count: Layout.count)
     @State private var impulseAnimation: Animation = Push.shove
+    /// Zero on impact—a shove hits everything at once—but non-zero on the way
+    /// back, so they trickle home instead of marching.
+    @State private var impulseStagger: Double = 0
     @State private var lastPushPoint: CGPoint?
     @State private var recoilTask: Task<Void, Never>?
 
@@ -75,17 +78,26 @@ struct MenuPebbleStage: View {
             .overlay { flecks(diameter: diameter) }
             .rotationEffect(.degrees(roll[index]))
             .animation(travel, value: roll[index])
+            // Both spins have to be applied before any `offset`: `offset` moves
+            // pixels but not the layout frame, so a rotation placed after one
+            // pivots around where the pebble *would* have been—swinging it
+            // across the stage instead of spinning it in place.
+            .rotationEffect(.degrees(impulseRoll[index]))
+            .animation(shoveAnimation(index: index), value: impulse[index])
             // Outside the rotation: a specular highlight that spun with the
             // body would read as a painted dot rather than a reflection.
             .overlay { specular(diameter: diameter) }
             .shadow(color: .black.opacity(isDarkMode ? 0.32 : 0.15), radius: 2, x: 0, y: 1.5)
             .offset(x: position.x, y: position.y)
             .animation(travel, value: formation)
-            // Shove spin and shove displacement sit outside the idle loop's
-            // animation so a punch stays snappy even mid-drift.
-            .rotationEffect(.degrees(impulseRoll[index]))
+            // The shove rides outside the idle loop's animation so a punch
+            // stays snappy even mid-drift.
             .offset(x: impulse[index].width, y: impulse[index].height)
-            .animation(impulseAnimation, value: impulse[index])
+            .animation(shoveAnimation(index: index), value: impulse[index])
+    }
+
+    private func shoveAnimation(index: Int) -> Animation {
+        impulseAnimation.delay(Double(index) * impulseStagger)
     }
 
     /// Surface markings—the only reason rotation is visible at all on a circle.
@@ -146,7 +158,6 @@ struct MenuPebbleStage: View {
         recoilTask?.cancel()
 
         let limitX = max(size.width / 2 - Push.margin, 0)
-        let limitY = max(size.height / 2 - Push.margin, 0)
         var nextImpulse = impulse
         var nextRoll = impulseRoll
 
@@ -167,7 +178,7 @@ struct MenuPebbleStage: View {
             let strength = Push.strength * CGFloat(exp(-Double(distance) / Double(Push.falloff)))
             let target = CGPoint(
                 x: min(max(current.x + dx / distance * strength, -limitX), limitX),
-                y: min(max(current.y + dy / distance * strength, -limitY), limitY)
+                y: min(max(current.y + dy / distance * strength, -Push.headroom), Push.footroom)
             )
 
             nextImpulse[index] = CGSize(width: target.x - home.x, height: target.y - home.y)
@@ -176,12 +187,14 @@ struct MenuPebbleStage: View {
         }
 
         impulseAnimation = reduceMotion ? Push.calmShove : Push.shove
+        impulseStagger = 0
         impulseRoll = nextRoll
         impulse = nextImpulse
 
         recoilTask = Task { @MainActor in
             guard await pause(Push.hold) else { return }
             impulseAnimation = reduceMotion ? Push.calmSettle : Push.settle
+            impulseStagger = reduceMotion ? 0 : Push.returnStagger
             // Unwinding the spin as they come back keeps the roll honest—they
             // rolled out, so they roll back.
             impulseRoll = [Double](repeating: 0, count: Layout.count)
@@ -281,25 +294,35 @@ extension MenuPebbleStage {
 extension MenuPebbleStage {
     fileprivate enum Push {
         /// Displacement, in points, for a pebble the finger lands right on.
-        static let strength: CGFloat = 34
-        /// e-folding distance of the shove: a pebble this far from the touch
-        /// gets about a third of `strength`.
-        static let falloff: CGFloat = 38
-        /// Keeps shoved pebbles inside the stage instead of barging into the
-        /// wordmark below.
-        static let margin: CGFloat = 8
+        static let strength: CGFloat = 56
+        /// e-folding distance of the shove. Deliberately long: with a short
+        /// falloff the pebble nearest the finger out-runs the one beyond it and
+        /// they collide, so the row bunches instead of fanning out.
+        static let falloff: CGFloat = 130
+        /// Keeps shoved pebbles inside the stage horizontally.
+        static let margin: CGFloat = 6
+        /// Vertical limits are lopsided because the space is: the menu leaves a
+        /// wide gap above the pebbles and almost none between them and the
+        /// wordmark, so they can fly high but barely sink.
+        static let headroom: CGFloat = 32
+        static let footroom: CGFloat = 10
         /// How far a finger must sweep before it counts as a fresh shove.
         static let resweep: CGFloat = 26
-        /// Time the pebbles stay flung before heading home.
-        static let hold = 0.11
+        /// Time the pebbles stay scattered before heading home—long enough to
+        /// see where they landed.
+        static let hold = 0.34
+        /// Per-pebble delay on the trip home only.
+        static let returnStagger = 0.05
 
-        static let shove = Animation.spring(response: 0.20, dampingFraction: 0.58)
-        static let settle = Animation.spring(response: 0.60, dampingFraction: 0.62)
+        static let shove = Animation.spring(response: 0.26, dampingFraction: 0.58)
+        /// Deliberately unhurried: they should look like they're rolling back,
+        /// not snapping back.
+        static let settle = Animation.spring(response: 1.05, dampingFraction: 0.72)
         /// Reduce Motion still gets to push pebbles—direct manipulation is the
         /// one kind of movement it isn't asking us to stop—just without the
         /// overshoot.
-        static let calmShove = Animation.easeOut(duration: 0.24)
-        static let calmSettle = Animation.easeInOut(duration: 0.5)
+        static let calmShove = Animation.easeOut(duration: 0.3)
+        static let calmSettle = Animation.easeInOut(duration: 0.9)
     }
 }
 
