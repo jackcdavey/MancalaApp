@@ -121,36 +121,9 @@ enum ImpossibleSearchLimitMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum AIDifficulty: String, CaseIterable, Identifiable {
-    case easy
-    case medium
-    case hard
-    case impossible
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .easy: "Easy"
-        case .medium: "Medium"
-        case .hard: "Hard"
-        case .impossible: "Impossible"
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .easy:
-            "Makes legal casual moves without deep planning."
-        case .medium:
-            "Looks for extra turns, captures, and obvious risks."
-        case .hard:
-            "Plays more carefully for store advantage and safer positions."
-        case .impossible:
-            "Uses deterministic search with pruning, exact endgame solving, and the selected search budget."
-        }
-    }
-
+// `AIDifficulty` itself lives in `Models/AIDifficulty.swift` so the headless
+// tools in `Scripts/` can compile it without SwiftUI. Only the colour is here.
+extension AIDifficulty {
     var tint: Color {
         switch self {
         case .easy:
@@ -161,19 +134,6 @@ enum AIDifficulty: String, CaseIterable, Identifiable {
             Color.orange
         case .impossible:
             Color.pink
-        }
-    }
-
-    var promptInstruction: String {
-        switch self {
-        case .easy:
-            "Choose a legal casual move. Do not deeply optimize."
-        case .medium:
-            "Prefer moves that earn an extra turn, capture stones, or avoid an obvious immediate loss."
-        case .hard:
-            "Evaluate all legal moves. Prioritize extra turns, captures, store advantage, and positions that reduce Player 1 capture opportunities."
-        case .impossible:
-            "This difficulty uses a deterministic solver instead of the language model."
         }
     }
 }

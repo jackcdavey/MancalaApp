@@ -3324,17 +3324,28 @@ struct ContentView: View {
         await animateMove(from: selectedPit)
     }
 
+    /// The solver budget for Impossible, which comes from user settings rather
+    /// than the difficulty profile.
+    private var impossibleSearchOptions: MancalaOptimalSolver.Options {
+        MancalaOptimalSolver.Options(
+            maxPositions: impossibleSearchLimitMode == .positions ? impossibleSearchLimit : 100_000_000,
+            timeLimit: impossibleSearchLimitMode == .time ? TimeInterval(impossibleSearchTimeLimit) : nil
+        )
+    }
+
     private func chooseAIPit(for player: Player, difficulty: AIDifficulty) async -> Int? {
         let legalPits = game.legalPits(for: player)
         guard !legalPits.isEmpty else { return nil }
 
-        if difficulty == .impossible {
-            appendAIThought("Starting exact search over legal pits \(legalPits).")
+        var rng = SplitMix64(seed: UInt64.random(in: UInt64.min...UInt64.max))
+        let profile = difficulty.profile
+
+        if profile.usesSearch {
+            appendAIThought("Searching legal pits \(legalPits).")
             let pitsSnapshot = game.pits
-            let currentPlayer = player == .playerOne ? 1 : 2
-            let limitMode = impossibleSearchLimitMode
-            let maxPositions = limitMode == .positions ? impossibleSearchLimit : 100_000_000
-            let timeLimit = limitMode == .time ? TimeInterval(impossibleSearchTimeLimit) : nil
+            let solverOptions = difficulty == .impossible
+                ? impossibleSearchOptions
+                : AIMoveSelector.options(for: profile)
             let progress: @Sendable (String) -> Void = { entry in
                 Task { @MainActor in
                     appendAIThought(entry)
@@ -3354,12 +3365,16 @@ struct ContentView: View {
                     )
                 }
             }
-            let searchTask = Task.detached(priority: .userInitiated) {
-                MancalaOptimalSolver.bestMove(
-                    pits: pitsSnapshot,
-                    currentPlayer: currentPlayer,
-                    maxPositions: maxPositions,
-                    timeLimit: timeLimit,
+            let seed = rng.next()
+            let searchTask = Task.detached(priority: .userInitiated) { () -> Int? in
+                var searchRNG = SplitMix64(seed: seed)
+                let snapshot = MancalaGame(pits: pitsSnapshot, currentPlayer: player)
+                return AIMoveSelector.selectPit(
+                    in: snapshot,
+                    for: player,
+                    difficulty: difficulty,
+                    optionsOverride: solverOptions,
+                    rng: &searchRNG,
                     progress: progress,
                     progressUpdate: progressUpdate
                 )
@@ -3387,52 +3402,7 @@ struct ContentView: View {
             appendAIThought("On-device model is unavailable; using heuristic move selection.")
         }
 
-        return heuristicAIPit(for: player, difficulty: difficulty, legalPits: legalPits)
-    }
-
-    private func heuristicAIPit(for player: Player, difficulty: AIDifficulty, legalPits: [Int]) -> Int? {
-        let rankedMoves = legalPits.map { pitIndex in
-            var simulatedGame = game
-            let startingStore = simulatedGame.storeCount(for: player)
-            let opponentStartingStore = simulatedGame.storeCount(for: player.opponent)
-            let path = simulatedGame.sowingPath(from: pitIndex)
-            let lastIndex = path.last
-            let capturedStones = lastIndex.flatMap { simulatedGame.captureMove(afterLandingAt: $0)?.capturedStones } ?? 0
-            simulatedGame.playPit(at: pitIndex)
-
-            let storeGain = simulatedGame.storeCount(for: player) - startingStore
-            let opponentStoreGain = simulatedGame.storeCount(for: player.opponent) - opponentStartingStore
-            let extraTurnBonus = simulatedGame.currentPlayer == player && !simulatedGame.isGameOver ? 18 : 0
-            let winBonus = simulatedGame.winner == player ? 1_000 : 0
-            let drawPenalty = simulatedGame.isDraw ? 8 : 0
-            let lossPenalty = simulatedGame.winner == player.opponent ? 1_000 : 0
-            let captureBonus = capturedStones * 5
-            let storeAdvantage = simulatedGame.storeCount(for: player) - simulatedGame.storeCount(for: player.opponent)
-            let sideBalance = player == .playerOne
-                ? simulatedGame.pits[0...5].reduce(0, +) - simulatedGame.pits[7...12].reduce(0, +)
-                : simulatedGame.pits[7...12].reduce(0, +) - simulatedGame.pits[0...5].reduce(0, +)
-
-            let score: Int
-            switch difficulty {
-            case .easy:
-                score = storeGain + extraTurnBonus / 3 + captureBonus / 4
-            case .medium:
-                score = storeGain * 4 + extraTurnBonus + captureBonus + storeAdvantage * 2
-            case .hard:
-                score = storeGain * 6 + extraTurnBonus + captureBonus + storeAdvantage * 4 + sideBalance - opponentStoreGain * 3 + winBonus - drawPenalty - lossPenalty
-            case .impossible:
-                score = storeGain * 8 + extraTurnBonus + captureBonus + storeAdvantage * 5 + sideBalance + winBonus - drawPenalty - lossPenalty
-            }
-
-            return (pitIndex: pitIndex, score: score)
-        }
-
-        return rankedMoves.max { lhs, rhs in
-            if lhs.score == rhs.score {
-                return lhs.pitIndex < rhs.pitIndex
-            }
-            return lhs.score < rhs.score
-        }?.pitIndex
+        return AIMoveSelector.selectPit(in: game, for: player, difficulty: difficulty, rng: &rng)
     }
 
     private func aiPrompt(for player: Player, difficulty: AIDifficulty, legalPits: [Int]) -> String {

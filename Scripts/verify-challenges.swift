@@ -5,20 +5,14 @@
 //
 //   swiftc -O -o /tmp/verify-challenges \
 //     Mancala/Models/Player.swift Mancala/Models/MancalaGame.swift \
+//     Mancala/Models/AIDifficulty.swift Mancala/AI/MancalaOptimalSolver.swift \
 //     Mancala/Models/ChallengeCatalog.swift Scripts/verify-challenges.swift \
 //   && /tmp/verify-challenges
 //
-// This file supplies a minimal AIDifficulty stand-in so the catalog compiles
-// without SwiftUI; do not include Mancala/Models/GameSettings.swift.
+// AIDifficulty lives in its own SwiftUI-free file so it can be compiled here;
+// do not include Mancala/Models/GameSettings.swift, which imports SwiftUI.
 
 import Foundation
-
-enum AIDifficulty {
-    case easy
-    case medium
-    case hard
-    case impossible
-}
 
 struct SearchKey: Hashable {
     let pits: [Int]
