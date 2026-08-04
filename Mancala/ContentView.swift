@@ -60,6 +60,10 @@ struct ContentView: View {
     @State private var impossibleSearchProgressText = ""
     @State private var hintedPitIndex: Int?
     @State private var isHintSearching = false
+    /// Debug-only state. All of it is inert unless `DebugMode.isEnabled`.
+    @State private var isDebugMenuPresented = false
+    @State private var debugPebbleAction: MenuPebbleStage.DebugAction?
+    @State private var debugPebbleToken = 0
     @AppStorage("savedSinglePlayerGameState") private var savedSinglePlayerGameState = Data()
     @AppStorage("savedTwoPlayerGameState") private var savedTwoPlayerGameState = Data()
     @AppStorage("savedZeroPlayerGameState") private var savedZeroPlayerGameState = Data()
@@ -130,6 +134,12 @@ struct ContentView: View {
                         .transition(.opacity)
                         .windowDepthOffset(menuDepthOffset)
                 }
+
+                // Last in the stack so it sits over the menu too. Declaration
+                // order rather than `zIndex` for the same reason as above.
+                if DebugMode.isEnabled {
+                    DebugOverlayButton(isMenuPresented: $isDebugMenuPresented)
+                }
             }
         }
         .environment(\.mancalaVisualTheme, visualTheme)
@@ -146,6 +156,13 @@ struct ContentView: View {
         }
         .sheet(isPresented: $isRulesPresented) {
             rulesSheet
+        }
+        .sheet(isPresented: $isDebugMenuPresented) {
+            DebugMenuView(
+                commands: debugCommands,
+                isMainMenuVisible: isMainMenuPresented,
+                isPresented: $isDebugMenuPresented
+            )
         }
         .onAppear {
             migratePlayerNamesIfNeeded()
@@ -1275,7 +1292,12 @@ struct ContentView: View {
         // into the surrounding whitespace, they just stop reserving it, which
         // matters on a page that never scrolls.
         VStack(spacing: 2) {
-            MenuPebbleStage(color: { stoneColor(for: $0) }, isDarkMode: isDarkMode)
+            MenuPebbleStage(
+                color: { stoneColor(for: $0) },
+                isDarkMode: isDarkMode,
+                debugAction: debugPebbleAction,
+                debugToken: debugPebbleToken
+            )
                 .padding(.vertical, -6)
 
             VStack(spacing: 6) {
@@ -2763,6 +2785,94 @@ struct ContentView: View {
         undoHistory.removeAll()
         hasRecordedCurrentCompletedGame = false
         game.reset(startingPlayer: resolvedStartingPlayer())
+        persistStableGameState()
+    }
+
+    // MARK: - Debug
+
+    /// Wiring for `DebugMenuView`. Only ever reached when `DebugMode.isEnabled`
+    /// is true — the button that opens the menu is behind the same flag.
+    private var debugCommands: DebugCommands {
+        DebugCommands(
+            playPebbleAction: { action in
+                debugPebbleAction = action
+                // The stage keys its drive task on this, so bumping it is what
+                // makes the same action replay.
+                debugPebbleToken += 1
+            },
+            forceOutcome: debugForceOutcome,
+            failChallenge: {
+                guard activeChallenge != nil else { return }
+                cancelAIThinking(shouldLog: false)
+                challengeFailed = true
+            },
+            loadEndgameBoard: debugLoadEndgameBoard,
+            requestHint: requestHint,
+            clearGameHistory: { completedGameHistoryData = Data() },
+            clearCompletedChallenges: { completedChallengeIDsStorage = "" },
+            clearSavedGames: {
+                for mode in GameMode.allCases {
+                    clearSavedGameState(for: mode)
+                }
+                legacySavedGameState = Data()
+            }
+        )
+    }
+
+    /// Ends the game where it stands with a manufactured final score, then runs
+    /// the same completion path a real finish does, so history, achievements,
+    /// the result popup, and the challenge check are all exercised.
+    private func debugForceOutcome(_ outcome: DebugOutcome) {
+        cancelAIThinking(shouldLog: false)
+        isMainMenuPresented = false
+        flyingStone = nil
+        hintedPitIndex = nil
+        isAnimatingMove = false
+        hasRecordedCurrentCompletedGame = false
+
+        let stores = outcome.stores
+        var pits = [Int](repeating: 0, count: 14)
+        pits[6] = stores.playerOne
+        pits[13] = stores.playerTwo
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            game = MancalaGame(
+                pits: pits,
+                currentPlayer: game.currentPlayer,
+                winner: outcome == .draw ? nil : (stores.playerOne > stores.playerTwo ? .playerOne : .playerTwo),
+                isDraw: outcome == .draw
+            )
+            challengeFailed = false
+        }
+
+        evaluateChallengeAfterMove()
+        recordCompletedGameIfNeeded()
+        persistStableGameState()
+    }
+
+    /// A position one sow from the end: a single stone on each side, with the
+    /// stores holding the rest. Playing it collects the leftovers and shows the
+    /// sweep-up animation and result popup without playing a whole game.
+    private func debugLoadEndgameBoard() {
+        cancelAIThinking(shouldLog: false)
+        isMainMenuPresented = false
+        flyingStone = nil
+        hintedPitIndex = nil
+        isAnimatingMove = false
+        hasRecordedCurrentCompletedGame = false
+        undoHistory.removeAll()
+
+        var pits = [Int](repeating: 0, count: 14)
+        pits[5] = 1
+        pits[12] = 1
+        pits[6] = 23
+        pits[13] = 23
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            game = MancalaGame(pits: pits, currentPlayer: .playerOne)
+            challengeFailed = false
+        }
+
         persistStableGameState()
     }
 

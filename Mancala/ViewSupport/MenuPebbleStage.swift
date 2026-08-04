@@ -25,6 +25,11 @@ struct MenuPebbleStage: View {
     /// branches on the visual theme.
     let color: (Int) -> Color
     let isDarkMode: Bool
+    /// Set by the debug menu to play one specific formation, routine, or shove
+    /// on demand. `debugToken` is what actually re-triggers it — the same action
+    /// twice in a row still has to replay, and only a changing id does that.
+    var debugAction: DebugAction?
+    var debugToken = 0
 
     @Environment(\.mancalaVisualTheme) private var visualTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -54,6 +59,9 @@ struct MenuPebbleStage: View {
     @State private var impulseStagger: Double = 0
     @State private var lastPushPoint: CGPoint?
     @State private var recoilTask: Task<Void, Never>?
+    /// Last measured stage size, kept so a debug shove can be aimed without a
+    /// real touch to take the geometry from.
+    @State private var stageSize: CGSize = .zero
 
     var body: some View {
         GeometryReader { proxy in
@@ -74,6 +82,7 @@ struct MenuPebbleStage: View {
             // circle around isn't a game anyone wants to play.
             .contentShape(Rectangle())
             .gesture(pushGesture(in: proxy.size))
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { stageSize = $0 }
         }
         .frame(height: Layout.stageHeight)
         .frame(maxWidth: .infinity)
@@ -227,11 +236,18 @@ struct MenuPebbleStage: View {
 
     /// Restarts the loop when Reduce Motion is toggled or the app leaves the
     /// foreground; `.task(id:)` cancels the previous run for us.
+    /// `debugToken` is part of the key so a debug request restarts the drive
+    /// task. That hands the stage to a single owner rather than letting a
+    /// one-off animation and the idle loop write `pose` over each other.
     private var loopKey: String {
-        "\(reduceMotion)-\(scenePhase == .active)"
+        "\(reduceMotion)-\(scenePhase == .active)-\(debugToken)"
     }
 
     private func runIdleLoop() async {
+        if debugToken > 0, let debugAction {
+            guard await performDebug(debugAction) else { return }
+        }
+
         guard !reduceMotion, scenePhase == .active else {
             restToHome()
             return
@@ -280,6 +296,39 @@ struct MenuPebbleStage: View {
 
             move(to: Formation.home.positions, motion: nextMotion, rolling: nextMood.rolls)
             guard await pause(nextMood.settle + nextMood.rest) else { return }
+        }
+    }
+
+    /// Plays one debug-requested animation, then hands the stage back to the
+    /// idle loop. Returns false if it was cancelled part-way.
+    private func performDebug(_ action: DebugAction) async -> Bool {
+        switch action {
+        case .home:
+            let mood = Mood.tumble
+            move(to: Formation.home.positions,
+                 motion: Motion(animation: mood.travel, stagger: mood.stagger),
+                 rolling: mood.rolls)
+            return await pause(mood.settle)
+
+        case let .formation(formation, moodKind):
+            let mood = moodKind.mood
+            let motion = Motion(animation: mood.travel, stagger: mood.stagger)
+            // Out, hold, and back — the same shape a normal idle cycle makes,
+            // so what the menu shows is what shipping code will show.
+            move(to: formation.positions, motion: motion, rolling: mood.rolls)
+            guard await pause(mood.settle + mood.hold) else { return false }
+            move(to: Formation.home.positions, motion: motion, rolling: mood.rolls)
+            return await pause(mood.settle)
+
+        case .routine(let kind):
+            return await perform(kind.routine)
+
+        case .shove(let origin):
+            // Fall back to the resting stage width if the geometry hasn't been
+            // measured yet, so a shove fired before first layout still moves.
+            let size = stageSize == .zero ? CGSize(width: 220, height: Layout.stageHeight) : stageSize
+            shove(from: origin.point(in: size), in: size)
+            return await pause(Push.hold + 1.2)
         }
     }
 
@@ -332,6 +381,121 @@ struct MenuPebbleStage: View {
             return true
         } catch {
             return false
+        }
+    }
+}
+
+// MARK: - Debug driving
+
+extension MenuPebbleStage {
+    /// One animation the debug menu can ask for by name. The stage's own
+    /// vocabulary (`Formation`, `Mood`, `Routine`) carries `Animation` values
+    /// and so can't be `Hashable`; these thin enums stand in for them.
+    enum DebugAction: Hashable, Identifiable {
+        case home
+        case formation(Formation, mood: MoodKind)
+        case routine(RoutineKind)
+        case shove(ShoveOrigin)
+
+        var id: String {
+            switch self {
+            case .home: "home"
+            case let .formation(formation, mood): "formation-\(formation)-\(mood.rawValue)"
+            case .routine(let kind): "routine-\(kind.rawValue)"
+            case .shove(let origin): "shove-\(origin.rawValue)"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .home: "Rest to Home Row"
+            case let .formation(formation, _): formation.title
+            case .routine(let kind): kind.title
+            case .shove(let origin): "Shove from \(origin.title)"
+            }
+        }
+    }
+
+    enum MoodKind: String, CaseIterable, Identifiable {
+        case tumble
+        case drift
+        case cascadeRoll
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .tumble: "Tumble"
+            case .drift: "Drift"
+            case .cascadeRoll: "Cascade"
+            }
+        }
+
+        fileprivate var mood: Mood {
+            switch self {
+            case .tumble: .tumble
+            case .drift: .drift
+            case .cascadeRoll: .cascadeRoll
+            }
+        }
+    }
+
+    enum RoutineKind: String, CaseIterable, Identifiable {
+        case wheel
+        case cradle
+        case leapfrog
+        case carousel
+        case vortex
+        case seesaw
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .wheel: "Wheel"
+            case .cradle: "Newton's Cradle"
+            case .leapfrog: "Leapfrog"
+            case .carousel: "Carousel"
+            case .vortex: "Vortex"
+            case .seesaw: "Seesaw"
+            }
+        }
+
+        fileprivate var routine: Routine {
+            switch self {
+            case .wheel: .wheel
+            case .cradle: .cradle
+            case .leapfrog: .leapfrog
+            case .carousel: .carousel
+            case .vortex: .vortex
+            case .seesaw: .seesaw
+            }
+        }
+    }
+
+    /// Where a synthetic touch lands, as a fraction of the stage.
+    enum ShoveOrigin: String, CaseIterable, Identifiable {
+        case left
+        case centre
+        case right
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .left: "Left"
+            case .centre: "Centre"
+            case .right: "Right"
+            }
+        }
+
+        /// Offsets from the stage centre, matching what `pushGesture` produces.
+        fileprivate func point(in size: CGSize) -> CGPoint {
+            switch self {
+            case .left: CGPoint(x: -size.width / 3, y: 0)
+            case .centre: CGPoint(x: 0, y: 0)
+            case .right: CGPoint(x: size.width / 3, y: 0)
+            }
         }
     }
 }
@@ -637,7 +801,9 @@ extension MenuPebbleStage {
     /// Pebble positions as offsets from the centre of the stage. Every case
     /// stays inside roughly ±61pt horizontally and ±25pt vertically (including
     /// the pebble radius), so nothing escapes the stage frame.
-    fileprivate enum Formation: CaseIterable, Equatable {
+    /// Internal rather than `fileprivate` only so the debug menu can list the
+    /// formations by name; nothing outside this file drives them directly.
+    enum Formation: CaseIterable, Hashable {
         /// The resting row: the original `HStack(spacing: 9)` laid out by hand.
         case home
         case ring
@@ -650,6 +816,19 @@ extension MenuPebbleStage {
 
         /// Everything except `home`—the loop always returns home in between.
         static let roaming: [Formation] = allCases.filter { $0 != .home }
+
+        var title: String {
+            switch self {
+            case .home: "Home Row"
+            case .ring: "Ring"
+            case .arc: "Arc"
+            case .wave: "Wave"
+            case .cascade: "Cascade"
+            case .pyramid: "Pyramid"
+            case .orbit: "Orbit"
+            case .huddle: "Huddle"
+            }
+        }
 
         var positions: [CGPoint] {
             switch self {

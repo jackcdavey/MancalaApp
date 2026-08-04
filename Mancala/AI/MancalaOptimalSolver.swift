@@ -68,6 +68,7 @@ struct MancalaOptimalSolver {
         currentPlayer: Int,
         maxPositions: Int,
         timeLimit: TimeInterval?,
+        fixedDepth: Int? = nil,
         progress: @escaping @Sendable (String) -> Void,
         progressUpdate: @escaping @Sendable (SearchProgress) -> Void
     ) -> Int? {
@@ -95,13 +96,21 @@ struct MancalaOptimalSolver {
             return nil
         }
 
-        let depthLimit = nonStoreStoneCount(state.pits) <= exactEndgameStoneThreshold ? maximumSearchDepth : budgetDepthLimit(maxPositions: maxPositions, timeLimit: timeLimit)
+        let depthLimit: Int
+        if let fixedDepth {
+            depthLimit = fixedDepth
+        } else if nonStoreStoneCount(state.pits) <= exactEndgameStoneThreshold {
+            depthLimit = maximumSearchDepth
+        } else {
+            depthLimit = budgetDepthLimit(maxPositions: maxPositions, timeLimit: timeLimit)
+        }
 
         for depth in 1...depthLimit {
             do {
                 let result = try rootSearch(
                     state,
                     depth: depth,
+                    allowEndgameExtension: fixedDepth == nil,
                     preferredMove: bestMove,
                     table: &table,
                     tableLimit: tableLimit,
@@ -153,6 +162,7 @@ struct MancalaOptimalSolver {
     nonisolated private static func rootSearch(
         _ state: State,
         depth: Int,
+        allowEndgameExtension: Bool,
         preferredMove: Int?,
         table: inout [[Int]: TranspositionEntry],
         tableLimit: Int,
@@ -164,7 +174,8 @@ struct MancalaOptimalSolver {
         progressUpdate: @escaping @Sendable (SearchProgress) -> Void
     ) throws -> SearchResult {
         let moves = orderedMoves(for: state, preferredMove: preferredMove)
-        let searchDepth = nonStoreStoneCount(state.pits) <= exactEndgameStoneThreshold ? maximumSearchDepth : depth
+        let isExactEndgame = allowEndgameExtension && nonStoreStoneCount(state.pits) <= exactEndgameStoneThreshold
+        let searchDepth = isExactEndgame ? maximumSearchDepth : depth
         var bestMove: Int?
         var bestScore = state.currentPlayer == 2 ? Int.min : Int.max
         var alpha = Int.min + 1
