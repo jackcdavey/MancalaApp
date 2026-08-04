@@ -30,4 +30,15 @@ struct SplitMix64: RandomNumberGenerator, Sendable {
         guard count > 0 else { return nil }
         return Int(next() % UInt64(count))
     }
+
+    /// Uniform in [0, 1).
+    ///
+    /// `Float` rather than `Double` because the only caller is `Board3D`, whose
+    /// per-stone squash, rotation, and scatter jitter are all `Float`. This came
+    /// from a second, identical `SplitMix64` that used to live in
+    /// `BoardLayout3D.swift`; the two were merged here because having both at
+    /// module scope made the name ambiguous.
+    mutating func unitFloat() -> Float {
+        Float(next() >> 40) / Float(1 << 24)
+    }
 }

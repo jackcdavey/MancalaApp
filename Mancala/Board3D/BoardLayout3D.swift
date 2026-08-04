@@ -2,28 +2,11 @@ import CoreGraphics
 import Foundation
 import simd
 
-/// Deterministic pseudo-random generator so per-stone squash, rotation, and
-/// scatter jitter are stable for a given (pit, slot) across the whole session.
-struct SplitMix64 {
-    private var state: UInt64
-
-    init(seed: UInt64) {
-        state = seed
-    }
-
-    mutating func next() -> UInt64 {
-        state &+= 0x9E3779B97F4A7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
-        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
-        return z ^ (z >> 31)
-    }
-
-    /// Uniform in [0, 1).
-    mutating func unitFloat() -> Float {
-        Float(next() >> 40) / Float(1 << 24)
-    }
-}
+// The deterministic generator behind per-stone squash, rotation, and scatter
+// jitter now lives in `Mancala/AI/SplitMix64.swift` — the AI needed the same
+// algorithm, and two `SplitMix64` types at module scope made the name
+// ambiguous. Seeding and output are unchanged, so the jitter for a given
+// (pit, slot) is exactly what it was.
 
 /// Scene-space description of the carved mancala board. Units are meters,
 /// the top face of the slab is the y = 0 plane, +x runs along the board's
