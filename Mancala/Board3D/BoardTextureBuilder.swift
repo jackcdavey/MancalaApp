@@ -148,7 +148,7 @@ enum BoardTextureBuilder {
     /// generator (see `woodBaseColor`), not raw pixel count, so a 2048×1024 bake
     /// reads sharp while staying cheap enough to keep launch and material swaps
     /// responsive.
-    static func baseColor(for style: BoardMaterialStyle, width: Int = 2048, height: Int = 1024) -> CGImage? {
+    static func baseColor(for style: BoardMaterialStyle, width: Int = 2048, height: Int = 1024, wells: Bool = true) -> CGImage? {
         switch style {
         case .walnut:
             return woodBaseColor(
@@ -160,7 +160,7 @@ enum BoardTextureBuilder {
                     mixBias: 0.12,
                     streakStrength: 0.18
                 ),
-                width: width, height: height
+                width: width, height: height, wells: wells
             )
         case .maple:
             return woodBaseColor(
@@ -172,30 +172,30 @@ enum BoardTextureBuilder {
                     mixBias: 0.30,
                     streakStrength: 0.13
                 ),
-                width: width, height: height
+                width: width, height: height, wells: wells
             )
         case .terracotta:
-            return terracottaBaseColor(width: width, height: height)
+            return terracottaBaseColor(width: width, height: height, wells: wells)
         case .marble:
-            return marbleBaseColor(width: width, height: height)
+            return marbleBaseColor(width: width, height: height, wells: wells)
         case .malachite:
-            return malachiteBaseColor(width: width, height: height)
+            return malachiteBaseColor(width: width, height: height, wells: wells)
         case .slate:
-            return slateBaseColor(width: width, height: height)
+            return slateBaseColor(width: width, height: height, wells: wells)
         case .obsidian:
-            return obsidianBaseColor(width: width, height: height)
+            return obsidianBaseColor(width: width, height: height, wells: wells)
         case .brushedBrass:
-            return brushedBrassBaseColor(width: width, height: height)
+            return brushedBrassBaseColor(width: width, height: height, wells: wells)
         case .frostedGlass:
-            return frostedGlassBaseColor(width: width, height: height)
+            return frostedGlassBaseColor(width: width, height: height, wells: wells)
         }
     }
 
-    private static func woodBaseColor(palette: WoodPalette, width: Int, height: Int) -> CGImage? {
+    private static func woodBaseColor(palette: WoodPalette, width: Int, height: Int, wells: Bool) -> CGImage? {
         let grainNoise = ValueNoise(seed: 0xB0A2D)
         let streakNoise = ValueNoise(seed: 0x5EED5)
         let fineNoise = ValueNoise(seed: 0xC1A55)
-        let field = sharedDepthField
+        let field = wells ? sharedDepthField : nil
         let maxDepth = BoardLayout3D.maxWellDepth
 
         var pixels = [UInt8](repeating: 255, count: width * height * 4)
@@ -238,10 +238,10 @@ enum BoardTextureBuilder {
     /// Unglazed terracotta: warm fired clay, uneven in tone the way a kiln
     /// leaves it, gritty with the sand in its body, and faintly ringed where a
     /// wheel would have thrown it.
-    private static func terracottaBaseColor(width: Int, height: Int) -> CGImage? {
+    private static func terracottaBaseColor(width: Int, height: Int, wells: Bool) -> CGImage? {
         let clayNoise = ValueNoise(seed: 0x7E44A)
         let gritNoise = ValueNoise(seed: 0xC1A47)
-        let field = sharedDepthField
+        let field = wells ? sharedDepthField : nil
         let maxDepth = BoardLayout3D.maxWellDepth
 
         let base = SIMD3<Float>(0.600, 0.325, 0.215)
@@ -285,10 +285,10 @@ enum BoardTextureBuilder {
 
     /// Polished marble: near-white base crossed by thin veins carved with
     /// domain-warped `sin` turbulence.
-    private static func marbleBaseColor(width: Int, height: Int) -> CGImage? {
+    private static func marbleBaseColor(width: Int, height: Int, wells: Bool) -> CGImage? {
         let warpNoise = ValueNoise(seed: 0x9A12B)
         let mottleNoise = ValueNoise(seed: 0x33F0D)
-        let field = sharedDepthField
+        let field = wells ? sharedDepthField : nil
         let maxDepth = BoardLayout3D.maxWellDepth
 
         let base = SIMD3<Float>(0.90, 0.905, 0.925)
@@ -323,10 +323,10 @@ enum BoardTextureBuilder {
     /// distance from a handful of scattered centres rather than as straight
     /// veins — no two sets of rings share a centre, which is what makes it read
     /// as malachite rather than as contour lines.
-    private static func malachiteBaseColor(width: Int, height: Int) -> CGImage? {
+    private static func malachiteBaseColor(width: Int, height: Int, wells: Bool) -> CGImage? {
         let warpNoise = ValueNoise(seed: 0x4A11E)
         let grainNoise = ValueNoise(seed: 0x2B7C3)
-        let field = sharedDepthField
+        let field = wells ? sharedDepthField : nil
         let maxDepth = BoardLayout3D.maxWellDepth
 
         let pale = SIMD3<Float>(0.315, 0.600, 0.420)
@@ -399,10 +399,10 @@ enum BoardTextureBuilder {
 
     /// Matte slate: dark, low-contrast stone with subtle cloudy mottling and
     /// faint lighter flecks.
-    private static func slateBaseColor(width: Int, height: Int) -> CGImage? {
+    private static func slateBaseColor(width: Int, height: Int, wells: Bool) -> CGImage? {
         let cloudNoise = ValueNoise(seed: 0x5171E)
         let fleckNoise = ValueNoise(seed: 0x7EC24)
-        let field = sharedDepthField
+        let field = wells ? sharedDepthField : nil
         let maxDepth = BoardLayout3D.maxWellDepth
 
         let base = SIMD3<Float>(0.155, 0.170, 0.190)
@@ -431,10 +431,10 @@ enum BoardTextureBuilder {
     /// nothing — the finish reads by its reflections instead (see the near-zero
     /// roughness in `BoardScene`) — so the base is a faint violet sheen along
     /// the shell-shaped fracture lines and black everywhere else.
-    private static func obsidianBaseColor(width: Int, height: Int) -> CGImage? {
+    private static func obsidianBaseColor(width: Int, height: Int, wells: Bool) -> CGImage? {
         let warpNoise = ValueNoise(seed: 0x0B51D)
         let dustNoise = ValueNoise(seed: 0x3D0FF)
-        let field = sharedDepthField
+        let field = wells ? sharedDepthField : nil
         let maxDepth = BoardLayout3D.maxWellDepth
 
         let base = SIMD3<Float>(0.042, 0.042, 0.052)
@@ -471,10 +471,10 @@ enum BoardTextureBuilder {
     /// streaks come from sampling noise slowly along `x` and very fast across
     /// `z`, which stretches it into lines rather than mottle; a broad sweep
     /// underneath keeps it from reading as a uniform sheet.
-    private static func brushedBrassBaseColor(width: Int, height: Int) -> CGImage? {
+    private static func brushedBrassBaseColor(width: Int, height: Int, wells: Bool) -> CGImage? {
         let brushNoise = ValueNoise(seed: 0xB2A55)
         let sweepNoise = ValueNoise(seed: 0x9F0E1)
-        let field = sharedDepthField
+        let field = wells ? sharedDepthField : nil
         let maxDepth = BoardLayout3D.maxWellDepth
 
         let light = SIMD3<Float>(0.865, 0.695, 0.345)
@@ -507,10 +507,10 @@ enum BoardTextureBuilder {
     /// (the sand-blasted look). The PBR spec in `BoardScene` pairs this with a
     /// translucent blend and a glossy clearcoat; the baked well AO keeps the pits
     /// reading as carved even through the translucency.
-    private static func frostedGlassBaseColor(width: Int, height: Int) -> CGImage? {
+    private static func frostedGlassBaseColor(width: Int, height: Int, wells: Bool) -> CGImage? {
         let cloudNoise = ValueNoise(seed: 0x6F203)
         let speckNoise = ValueNoise(seed: 0x1CE55)
-        let field = sharedDepthField
+        let field = wells ? sharedDepthField : nil
         let maxDepth = BoardLayout3D.maxWellDepth
 
         let base = SIMD3<Float>(0.82, 0.88, 0.94)
@@ -538,7 +538,9 @@ enum BoardTextureBuilder {
     /// Baked ambient occlusion shared by every finish: darker toward the bottom
     /// of each well, plus extra rim contact darkening from the depth gradient,
     /// so pits read as carved regardless of material.
-    private static func bakedAO(field: DepthField, u: Float, v: Float, maxDepth: Float) -> Float {
+    private static func bakedAO(field: DepthField?, u: Float, v: Float, maxDepth: Float) -> Float {
+        // No field means a flat sample: material only, no pits to shade.
+        guard let field else { return 1 }
         let depth = field.depth(u: u, v: v)
         let rim = min(field.gradientMagnitude(u: u, v: v) * 0.4, 1) * 0.12
         return max(1 - 0.55 * powf(depth / maxDepth, 0.8) - rim, 0.22)

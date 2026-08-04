@@ -11,6 +11,7 @@ struct ContentView: View {
     @AppStorage("gameMode") private var gameMode = AppDefaults.gameMode
     @AppStorage("visualTheme") private var visualTheme = AppDefaults.visualTheme
     @AppStorage("boardMaterialStyle") private var boardMaterialStyle = AppDefaults.boardMaterialStyle
+    @AppStorage("boardBackgroundStyle") private var boardBackgroundStyle = AppDefaults.boardBackgroundStyle
     @AppStorage("gyroMotionEnabled") private var gyroMotionEnabled = AppDefaults.gyroMotionEnabled
     @AppStorage("stoneAnimationSpeed") private var stoneAnimationSpeed = AppDefaults.stoneAnimationSpeed
     @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = AppDefaults.flipScreenForTwoPlayerTurns
@@ -38,6 +39,7 @@ struct ContentView: View {
     @State private var isSettingsPresented = false
     @State private var isGameHistoryPresented = false
     @State private var isRulesPresented = false
+    @State private var isCustomizePresented = false
     @State private var isMainMenuPresented = true
     @State private var isMainMenuShowingChallenges = false
     @State private var activeChallenge: MancalaChallenge?
@@ -147,6 +149,9 @@ struct ContentView: View {
         .sheet(isPresented: $isRulesPresented) {
             rulesSheet
         }
+        .sheet(isPresented: $isCustomizePresented) {
+            customizeSheet
+        }
         .onAppear {
             migratePlayerNamesIfNeeded()
             restoreSavedGameIfNeeded()
@@ -218,9 +223,18 @@ struct ContentView: View {
         )
     }
 
+    /// The page behind everything. The Immersive theme gets the chosen
+    /// `BoardBackgroundStyle`; the Flat theme keeps the plain warm gradient,
+    /// because its whole idea is pits pressed into an undisturbed page.
+    @ViewBuilder
     private var background: some View {
-        backgroundGradient
-            .ignoresSafeArea()
+        if visualTheme == .liquidGlass {
+            BoardBackgroundView(style: boardBackgroundStyle, isDarkMode: isDarkMode)
+                .ignoresSafeArea()
+        } else {
+            backgroundGradient
+                .ignoresSafeArea()
+        }
     }
 
     /// The menu's own copy of the page background, painted over the game while
@@ -326,14 +340,6 @@ struct ContentView: View {
     /// if it's since been withdrawn. Without that, a player who had a withdrawn
     /// finish selected would face a picker with no row matching their setting,
     /// showing blank and giving them nothing to change away from.
-    private var offeredMaterials: [BoardMaterialStyle] {
-        var styles = BoardMaterialStyle.offered
-        if !styles.contains(boardMaterialStyle) {
-            styles.append(boardMaterialStyle)
-        }
-        return styles
-    }
-
     private var shouldShowStatusPanel: Bool {
         gameMode == .singlePlayer || gameMode == .zeroPlayer || gameMode == .onlineMultiplayer
     }
@@ -421,6 +427,7 @@ struct ContentView: View {
         return isSettingsPresented
             || isGameHistoryPresented
             || isRulesPresented
+            || isCustomizePresented
             || isMainMenuPresented
         #else
         return false
@@ -1461,14 +1468,21 @@ struct ContentView: View {
         .accessibilityLabel("\(challenge.title). \(challenge.subtitle). \(challenge.moveLimit) moves against \(challenge.aiDifficulty.title) AI.\(isCompleted ? " Completed." : "")")
     }
 
+    /// Four across now, so the buttons share the row's width rather than each
+    /// claiming a fixed 72pt — four fixed slots plus their spacing overflows an
+    /// SE-class screen, and this row has no scroll to fall back on.
     private var mainMenuUtilityRow: some View {
-        HStack(spacing: 26) {
+        HStack(spacing: 6) {
             mainMenuUtilityButton("Rules", systemImage: "book.closed") {
                 isRulesPresented = true
             }
 
             mainMenuUtilityButton("History", systemImage: "clock.arrow.circlepath") {
                 isGameHistoryPresented = true
+            }
+
+            mainMenuUtilityButton("Customize", systemImage: "paintpalette") {
+                isCustomizePresented = true
             }
 
             mainMenuUtilityButton("Settings", systemImage: "gearshape") {
@@ -1486,9 +1500,13 @@ struct ContentView: View {
                 Text(title)
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(1.2)
+                    // "CUSTOMIZE" is the widest label by some way; let it shrink
+                    // on narrow screens instead of truncating to "CUSTOMIZ…".
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
             .foregroundStyle(secondaryText)
-            .frame(width: 72)
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
@@ -1768,6 +1786,13 @@ struct ContentView: View {
 
         Button {
             dismissHeaderMenu()
+            isCustomizePresented = true
+        } label: {
+            Label("Customize", systemImage: "paintpalette")
+        }
+
+        Button {
+            dismissHeaderMenu()
             isSettingsPresented = true
         } label: {
             Label("Settings", systemImage: "gearshape")
@@ -1878,6 +1903,26 @@ struct ContentView: View {
         }
     }
 
+    /// Shared by both entry points — the main menu's utility row and the
+    /// in-game header menu. Deliberately not in Settings: this is a place you go
+    /// to look at things, not a preference you set in passing.
+    private var customizeSheet: some View {
+        NavigationStack {
+            CustomizeView()
+                .navigationTitle("Customize")
+                #if !os(macOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            isCustomizePresented = false
+                        }
+                    }
+                }
+        }
+    }
+
     private var settingsSheet: some View {
         NavigationStack {
             Form {
@@ -1894,12 +1939,6 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
 
                     if visualTheme == .liquidGlass {
-                        Picker("Material", selection: $boardMaterialStyle) {
-                            ForEach(offeredMaterials) { style in
-                                Text(style.title).tag(style)
-                            }
-                        }
-
                         #if !os(visionOS)
                         Toggle("Motion Parallax", isOn: $gyroMotionEnabled)
 

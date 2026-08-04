@@ -22,6 +22,9 @@ enum AppDefaults {
     static let visualTheme = VisualTheme.liquidGlass
     /// Finish of the 3D board's slab.
     static let boardMaterialStyle = BoardMaterialStyle.marble
+    /// Page behind the board in the Immersive theme. `parchment` is the warm
+    /// cream the app shipped with, so the default look is unchanged.
+    static let boardBackgroundStyle = BoardBackgroundStyle.parchment
     /// Tilt-to-parallax on the 3D board.
     static let gyroMotionEnabled = false
     /// Multiplier applied to every stone animation (0.25...4).
