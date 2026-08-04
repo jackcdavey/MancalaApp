@@ -148,12 +148,20 @@ struct MancalaOptimalSolver {
         let depthLimit = options.depthLimit
             ?? budgetDepthLimit(maxPositions: context.maxPositions, timeLimit: context.timeLimit)
 
-        var ranked = rootMoves.map { RankedMove(move: $0, score: 0) }
+        // Seeded with the static ordering, not raw pit order: if the very first
+        // iteration runs out of budget there is no search result to fall back
+        // on, and returning pit 0 or 7 loses games outright.
+        var ranked = orderedMoves(for: state, ttMove: nil, ply: 0, context: context)
+            .map { RankedMove(move: $0, score: 0) }
         var proven = false
         var previousScore: Int?
 
         for depth in 1...max(1, depthLimit) {
             do {
+                // Endgame solving deepens with the iteration instead of jumping
+                // straight to the horizon, so every iteration stays affordable
+                // and iterative deepening keeps making progress.
+                context.endgameSolveDepth = min(maximumSearchDepth, depth * 3)
                 let result = try rootSearch(state, depth: depth, previousScore: previousScore, context: context)
                 ranked = result.ranked
                 proven = result.proven
@@ -273,6 +281,9 @@ struct MancalaOptimalSolver {
         var completedDepth = 0
         var bestMove: Int?
         var proven = false
+        /// Absolute depth from the root that endgame positions may search to.
+        /// Raised each iteration so a full solve is approached gradually.
+        var endgameSolveDepth = 0
 
         /// Two killer slots per ply, plus a per-player move history score.
         var killers: [Int]
@@ -451,12 +462,18 @@ struct MancalaOptimalSolver {
             return SearchResult(score: decided, move: nil, proven: true)
         }
 
-        // Interior endgame extension: solve small positions to terminal rather
-        // than cutting off with a heuristic. Bounded by ply so recursion cannot
-        // run away.
+        // Interior endgame extension: search small positions much deeper, toward
+        // a full solve, rather than cutting off with a heuristic.
+        //
+        // The target is an absolute depth from the root, so it shrinks as `ply`
+        // grows and cannot compound on the way down. It is also capped by the
+        // iteration's own allowance — extending straight to the horizon here
+        // burns the whole node budget inside iteration one, which leaves the
+        // caller with no completed search result at all.
         var searchDepth = depth
         if nonStoreStoneCount(state.pits) <= context.endgameThreshold {
-            searchDepth = max(searchDepth, maximumSearchDepth - ply)
+            let target = min(maximumSearchDepth, context.endgameSolveDepth) - ply
+            searchDepth = max(searchDepth, target)
         }
 
         if searchDepth <= 0 || ply >= maximumSearchDepth {
@@ -474,20 +491,21 @@ struct MancalaOptimalSolver {
             ttMove = cached.move
             if cached.depth >= searchDepth {
                 context.cacheHits += 1
+                let cachedScore = denormalizeFromStorage(cached.score, ply: ply)
                 switch cached.bound {
                 case .exact:
                     // `proven` is tracked separately from the bound on purpose: a
                     // depth-limited PV score is exact for its depth but is not the
                     // position's true value, and must never stop deepening.
-                    return SearchResult(score: cached.score, move: cached.move, proven: cached.proven)
+                    return SearchResult(score: cachedScore, move: cached.move, proven: cached.proven)
                 case .lower:
-                    alpha = max(alpha, cached.score)
+                    alpha = max(alpha, cachedScore)
                 case .upper:
-                    beta = min(beta, cached.score)
+                    beta = min(beta, cachedScore)
                 }
 
                 if alpha >= beta {
-                    return SearchResult(score: cached.score, move: cached.move, proven: cached.proven)
+                    return SearchResult(score: cachedScore, move: cached.move, proven: cached.proven)
                 }
             }
         }
@@ -555,7 +573,13 @@ struct MancalaOptimalSolver {
 
         store(
             key: key,
-            entry: TranspositionEntry(depth: searchDepth, score: bestScore, move: bestMove, bound: bound, proven: proven),
+            entry: TranspositionEntry(
+                depth: searchDepth,
+                score: normalizeForStorage(bestScore, ply: ply),
+                move: bestMove,
+                bound: bound,
+                proven: proven
+            ),
             context: context
         )
 
@@ -761,15 +785,20 @@ struct MancalaOptimalSolver {
         return exposed
     }
 
-    /// Prefers winning sooner and losing later, which stops the engine dawdling
-    /// in a won position and giving the opponent chances to climb back.
+    /// Prefers a bigger margin first, and a faster finish only as a tie-break.
+    ///
+    /// `marginWeight` has to exceed the largest possible `ply` term, or the
+    /// engine trades stones away for speed — a one-stone win found two moves
+    /// sooner would outrank a five-stone win.
+    nonisolated private static let marginWeight = 256
+
     nonisolated private static func terminalScore(_ pits: [Int], ply: Int) -> Int {
         let difference = pits[13] - pits[6]
         if difference > 0 {
-            return winScore + difference * 4 - ply
+            return winScore + difference * marginWeight - ply
         }
         if difference < 0 {
-            return -winScore + difference * 4 + ply
+            return -winScore + difference * marginWeight + ply
         }
         return 0
     }
@@ -779,15 +808,33 @@ struct MancalaOptimalSolver {
     nonisolated private static func decidedScore(_ pits: [Int], totalStones: Int, ply: Int) -> Int? {
         let playerTwoLead = pits[13] * 2 - totalStones
         if playerTwoLead > 0 {
-            return winScore + playerTwoLead * 4 - ply
+            return winScore + playerTwoLead * marginWeight - ply
         }
 
         let playerOneLead = pits[6] * 2 - totalStones
         if playerOneLead > 0 {
-            return -winScore - playerOneLead * 4 + ply
+            return -winScore - playerOneLead * marginWeight + ply
         }
 
         return nil
+    }
+
+    /// Decisive scores carry a "how far from the root" term, so they are only
+    /// meaningful at the ply that produced them. A cached entry reached by a
+    /// different path sits at a different ply, so the term is stripped on the
+    /// way into the table and reapplied on the way out.
+    nonisolated private static func isDecisive(_ score: Int) -> Bool {
+        score >= winScore / 2 || score <= -winScore / 2
+    }
+
+    nonisolated private static func normalizeForStorage(_ score: Int, ply: Int) -> Int {
+        guard isDecisive(score) else { return score }
+        return score > 0 ? score + ply : score - ply
+    }
+
+    nonisolated private static func denormalizeFromStorage(_ score: Int, ply: Int) -> Int {
+        guard isDecisive(score) else { return score }
+        return score > 0 ? score - ply : score + ply
     }
 
     // MARK: - Rules
