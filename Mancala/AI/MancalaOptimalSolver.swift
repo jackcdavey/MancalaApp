@@ -94,7 +94,10 @@ struct MancalaOptimalSolver {
     nonisolated private static let winScore = 100_000
     nonisolated private static let infinity = 1_000_000
     nonisolated private static let maximumSearchDepth = 96
-    nonisolated private static let aspirationWindow = 80
+    /// Must be wider than the score swing of a single stone, which `evaluate`
+    /// weights at 128. A narrower window fails on almost every iteration, and
+    /// each failure costs a full-width re-search.
+    nonisolated private static let aspirationWindow = 384
 
     /// Convenience entry point kept for existing callers and tests.
     nonisolated static func bestMove(
@@ -158,10 +161,10 @@ struct MancalaOptimalSolver {
 
         for depth in 1...max(1, depthLimit) {
             do {
-                // Endgame solving deepens with the iteration instead of jumping
-                // straight to the horizon, so every iteration stays affordable
-                // and iterative deepening keeps making progress.
-                context.endgameSolveDepth = min(maximumSearchDepth, depth * 3)
+                // Baseline for endgame solving. The extension itself is earned by
+                // how far into the endgame a position is, not by crossing the
+                // threshold, so entering endgame territory costs nothing extra.
+                context.endgameSolveDepth = depth
                 let result = try rootSearch(state, depth: depth, previousScore: previousScore, context: context)
                 ranked = result.ranked
                 proven = result.proven
@@ -471,8 +474,15 @@ struct MancalaOptimalSolver {
         // burns the whole node budget inside iteration one, which leaves the
         // caller with no completed search result at all.
         var searchDepth = depth
-        if nonStoreStoneCount(state.pits) <= context.endgameThreshold {
-            let target = min(maximumSearchDepth, context.endgameSolveDepth) - ply
+        let stonesInPlay = nonStoreStoneCount(state.pits)
+        if stonesInPlay <= context.endgameThreshold {
+            // The bonus is zero at the threshold and grows as stones leave the
+            // board, so a position only gets solved outright once that is
+            // genuinely cheap. A flat multiplier here instead makes crossing the
+            // threshold expensive, which costs more iterations than the deeper
+            // endgame search wins back.
+            let bonus = (context.endgameThreshold - stonesInPlay) * 3
+            let target = min(maximumSearchDepth, context.endgameSolveDepth + bonus) - ply
             searchDepth = max(searchDepth, target)
         }
 
