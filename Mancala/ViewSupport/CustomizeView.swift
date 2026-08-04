@@ -166,6 +166,12 @@ struct CustomizeView: View {
         .listRowInsets(EdgeInsets())
     }
 
+    private static let tileWidth: CGFloat = 62
+    private static let tileHeight: CGFloat = 84
+    /// Two lines' worth, reserved on every tile so a wrapped label ("Brushed
+    /// Brass") doesn't stand its neighbours up taller than itself.
+    private static let labelHeight: CGFloat = 26
+
     private func swatchTile<Content: View>(
         title: String,
         isSelected: Bool,
@@ -180,7 +186,15 @@ struct CustomizeView: View {
         } label: {
             VStack(spacing: 6) {
                 content()
-                    .frame(width: 62, height: 84)
+                    .frame(width: Self.tileWidth, height: Self.tileHeight)
+                    // `clipped` as well as `clipShape`: the material swatches
+                    // are 2:1 textures shown `.scaledToFill`, so they render
+                    // ~168pt wide inside a 62pt frame. `clipShape` hides the
+                    // overflow but leaves it live for hit testing, which made
+                    // every tile's touch area swallow both its neighbours —
+                    // and since later HStack siblings hit-test in front, the
+                    // tile to the right won every tap.
+                    .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -192,8 +206,19 @@ struct CustomizeView: View {
 
                 Text(title)
                     .font(.caption2)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
                     .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .frame(width: Self.tileWidth, height: Self.labelHeight, alignment: .top)
             }
+            // Pin the whole tile to the swatch's width. Left to itself the
+            // VStack takes the width of its widest child — the label — so long
+            // names grew the tappable area past the picture they belong to.
+            .frame(width: Self.tileWidth)
+            // The last word on where this button starts and stops, whatever
+            // its contents do.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
