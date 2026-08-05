@@ -26,27 +26,55 @@ enum BoardMaterialSwatch {
 
     private static var cache: [BoardMaterialStyle: CGImage] = [:]
 
+    /// A synchronous peek at the cache.
+    ///
+    /// The picker reads this while building its body, so a style baked earlier
+    /// in the session draws on the very first frame. Going through the `async`
+    /// path instead would always miss that frame and only appear once the
+    /// resulting state change landed — which is exactly what made the tiles
+    /// look like they were waiting for the user to do something.
     static func cached(_ style: BoardMaterialStyle) -> CGImage? {
         cache[style]
     }
 
-    /// Bakes `style` if it isn't cached yet, and returns it either way.
-    static func image(for style: BoardMaterialStyle) async -> CGImage? {
-        if let cached = cache[style] {
-            return cached
-        }
+    /// Bakes everything not already cached, all at once.
+    ///
+    /// Concurrently rather than one after another: these are seven independent
+    /// per-pixel noise loops, and in a Debug build (`-Onone`) each is slow
+    /// enough that doing them in series is the difference between a blink and
+    /// a wait. `body` reports each image as it lands so tiles fill in as they
+    /// finish rather than all at the end.
+    static func bakeMissing(
+        _ styles: [BoardMaterialStyle],
+        onEach: @MainActor (BoardMaterialStyle, CGImage) -> Void
+    ) async {
+        let pending = styles.filter { cache[$0] == nil }
+        guard !pending.isEmpty else { return }
 
         let (width, height) = (Self.width, Self.height)
-        let image = await Task.detached(priority: .userInitiated) {
-            // `wells: false` leaves out the baked pit occlusion. On the board
-            // those shadows are the point; in a 62pt tile they shrink to grey
-            // smudges that read as dirt on the sample rather than as pits.
-            BoardTextureBuilder.baseColor(for: style, width: width, height: height, wells: false)
-        }.value
 
-        if let image {
-            cache[style] = image
+        await withTaskGroup(of: (BoardMaterialStyle, CGImage?).self) { group in
+            for style in pending {
+                group.addTask(priority: .userInitiated) {
+                    // `wells: false` leaves out the baked pit occlusion. On the
+                    // board those shadows are the point; in a 62pt tile they
+                    // shrink to grey smudges that read as dirt on the sample
+                    // rather than as pits.
+                    let image = BoardTextureBuilder.baseColor(
+                        for: style,
+                        width: width,
+                        height: height,
+                        wells: false
+                    )
+                    return (style, image)
+                }
+            }
+
+            for await (style, image) in group {
+                guard let image else { continue }
+                cache[style] = image
+                onEach(style, image)
+            }
         }
-        return image
     }
 }

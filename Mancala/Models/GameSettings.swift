@@ -47,6 +47,23 @@ enum BoardMaterialStyle: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Roughly the finish's average colour, drawn instantly while the real
+    /// texture bakes. A tile that starts the right colour and sharpens into
+    /// grain reads as loading; a grey box reads as broken.
+    var previewTint: Color {
+        switch self {
+        case .walnut: Color(red: 0.42, green: 0.27, blue: 0.16)
+        case .maple: Color(red: 0.79, green: 0.68, blue: 0.50)
+        case .terracotta: Color(red: 0.70, green: 0.42, blue: 0.30)
+        case .marble: Color(red: 0.87, green: 0.87, blue: 0.88)
+        case .malachite: Color(red: 0.10, green: 0.36, blue: 0.24)
+        case .slate: Color(red: 0.34, green: 0.36, blue: 0.38)
+        case .obsidian: Color(red: 0.08, green: 0.07, blue: 0.10)
+        case .brushedBrass: Color(red: 0.72, green: 0.58, blue: 0.28)
+        case .frostedGlass: Color(red: 0.82, green: 0.86, blue: 0.88)
+        }
+    }
+
     var description: String {
         switch self {
         case .walnut: "Dark, open-grained hardwood."

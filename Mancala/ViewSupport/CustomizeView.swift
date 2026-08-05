@@ -44,8 +44,8 @@ struct CustomizeView: View {
             backgroundSection
         }
         .task {
-            for style in offeredMaterials where materialImages[style] == nil {
-                materialImages[style] = await BoardMaterialSwatch.image(for: style)
+            await BoardMaterialSwatch.bakeMissing(offeredMaterials) { style, image in
+                materialImages[style] = image
             }
         }
     }
@@ -112,17 +112,25 @@ struct CustomizeView: View {
         ) {
             boardMaterialStyle = style
         } content: {
-            if let image = materialImages[style] {
-                // The texture is the board's top face, so filling the portrait
-                // tile crops to a close-up of the surface — which is what a
-                // material sample should be.
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Rectangle()
-                    .fill(Color.primary.opacity(0.06))
+            ZStack {
+                // Always underneath, so the tile is the right colour on the
+                // first frame even before anything has been baked.
+                Rectangle().fill(style.previewTint)
+
+                // `cached` first: a style baked earlier this session is
+                // available synchronously and draws immediately, without
+                // waiting for the async pass to hand it back through `@State`.
+                if let image = materialImages[style] ?? BoardMaterialSwatch.cached(style) {
+                    // The texture is the board's top face, so filling the
+                    // portrait tile crops to a close-up of the surface — which
+                    // is what a material sample should be.
+                    Image(decorative: image, scale: 1)
+                        .resizable()
+                        .scaledToFill()
+                        .transition(.opacity)
+                }
             }
+            .animation(.easeOut(duration: 0.2), value: materialImages[style] != nil)
         }
     }
 
