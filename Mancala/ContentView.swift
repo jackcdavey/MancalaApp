@@ -1930,6 +1930,68 @@ struct ContentView: View {
     private var settingsSheet: some View {
         NavigationStack {
             Form {
+                if gameMode == .singlePlayer {
+                    Section("Difficulty") {
+                        Picker("Skill", selection: $difficulty) {
+                            ForEach(AIDifficulty.allCases) { difficulty in
+                                Text(difficulty.title).tag(difficulty)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: difficulty) { _, _ in
+                            restartAIThinkingForUpdatedSettingsIfNeeded()
+                        }
+
+                        Text(difficulty.description)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        if let modelAvailabilityMessage {
+                            Text(modelAvailabilityMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else if gameMode == .zeroPlayer {
+                    Section("Player 1 Difficulty") {
+                        Picker("Player 1 Skill", selection: $zeroPlayerOneDifficulty) {
+                            ForEach(AIDifficulty.allCases) { difficulty in
+                                Text(difficulty.title).tag(difficulty)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: zeroPlayerOneDifficulty) { _, _ in
+                            restartAIThinkingForUpdatedSettingsIfNeeded()
+                        }
+
+                        Text(zeroPlayerOneDifficulty.description)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Section("Player 2 Difficulty") {
+                        Picker("Player 2 Skill", selection: $zeroPlayerTwoDifficulty) {
+                            ForEach(AIDifficulty.allCases) { difficulty in
+                                Text(difficulty.title).tag(difficulty)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: zeroPlayerTwoDifficulty) { _, _ in
+                            restartAIThinkingForUpdatedSettingsIfNeeded()
+                        }
+
+                        Text(zeroPlayerTwoDifficulty.description)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        if let modelAvailabilityMessage {
+                            Text(modelAvailabilityMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 Section("Appearance") {
                     Picker("Theme", selection: $visualTheme) {
                         ForEach(VisualTheme.allCases) { theme in
@@ -1972,35 +2034,6 @@ struct ContentView: View {
                     Text("How quickly pebbles fly between pits.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                }
-
-                Section("Players") {
-                    Picker("Mode", selection: $gameMode) {
-                        Text("2 Players").tag(GameMode.twoPlayer)
-                        Text("1 Player").tag(GameMode.singlePlayer)
-                            .disabled(!isAIPlayAvailable)
-                        Text("0 Player").tag(GameMode.zeroPlayer)
-                            .disabled(!isAIPlayAvailable)
-                        Text("Online").tag(GameMode.onlineMultiplayer)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: gameMode) { oldMode, newMode in
-                        let resolvedMode: GameMode
-                        if (newMode == .singlePlayer || newMode == .zeroPlayer), !isAIPlayAvailable {
-                            resolvedMode = .twoPlayer
-                            gameMode = .twoPlayer
-                        } else {
-                            resolvedMode = newMode
-                        }
-
-                        switchGameMode(from: oldMode, to: resolvedMode)
-                    }
-
-                    if let modelAvailabilityMessage {
-                        Text(modelAvailabilityMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
                 }
 
                 Section("Names") {
@@ -2102,56 +2135,6 @@ struct ContentView: View {
                         Text(startingPlayerDescription)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                    }
-
-                    if gameMode == .singlePlayer {
-                        Section("Difficulty") {
-                            Picker("Skill", selection: $difficulty) {
-                                ForEach(AIDifficulty.allCases) { difficulty in
-                                    Text(difficulty.title).tag(difficulty)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .onChange(of: difficulty) { _, _ in
-                                restartAIThinkingForUpdatedSettingsIfNeeded()
-                            }
-
-                            Text(difficulty.description)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Section("Player 1 Difficulty") {
-                            Picker("Player 1 Skill", selection: $zeroPlayerOneDifficulty) {
-                                ForEach(AIDifficulty.allCases) { difficulty in
-                                    Text(difficulty.title).tag(difficulty)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .onChange(of: zeroPlayerOneDifficulty) { _, _ in
-                                restartAIThinkingForUpdatedSettingsIfNeeded()
-                            }
-
-                            Text(zeroPlayerOneDifficulty.description)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Section("Player 2 Difficulty") {
-                            Picker("Player 2 Skill", selection: $zeroPlayerTwoDifficulty) {
-                                ForEach(AIDifficulty.allCases) { difficulty in
-                                    Text(difficulty.title).tag(difficulty)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .onChange(of: zeroPlayerTwoDifficulty) { _, _ in
-                                restartAIThinkingForUpdatedSettingsIfNeeded()
-                            }
-
-                            Text(zeroPlayerTwoDifficulty.description)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
                     }
 
                     Section("Display") {
