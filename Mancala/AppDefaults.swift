@@ -25,6 +25,8 @@ enum AppDefaults {
     /// Page behind the board in the Immersive theme. `parchment` is the warm
     /// cream the app shipped with, so the default look is unchanged.
     static let boardBackgroundStyle = BoardBackgroundStyle.parchment
+    /// Stone colours and finish. `classic` is the original set.
+    static let stoneSetStyle = StoneSetStyle.classic
     /// Tilt-to-parallax on the 3D board.
     static let gyroMotionEnabled = false
     /// Multiplier applied to every stone animation (0.25...4).

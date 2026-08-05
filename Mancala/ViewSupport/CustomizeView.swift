@@ -16,6 +16,7 @@ struct CustomizeView: View {
     @AppStorage("visualTheme") private var visualTheme = AppDefaults.visualTheme
     @AppStorage("boardBackgroundStyle") private var boardBackgroundStyle = AppDefaults.boardBackgroundStyle
     @AppStorage("boardMaterialStyle") private var boardMaterialStyle = AppDefaults.boardMaterialStyle
+    @AppStorage("stoneSetStyle") private var stoneSetStyle = AppDefaults.stoneSetStyle
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -38,6 +39,7 @@ struct CustomizeView: View {
 
     var body: some View {
         Form {
+            stoneSection
             materialSection
             backgroundSection
         }
@@ -45,6 +47,37 @@ struct CustomizeView: View {
             for style in offeredMaterials where materialImages[style] == nil {
                 materialImages[style] = await BoardMaterialSwatch.image(for: style)
             }
+        }
+    }
+
+    // MARK: - Stones
+
+    /// No Flat-theme caveat here, unlike the two below: the flat board draws
+    /// its own two-tone dots and ignores this, but the menu pebbles use it in
+    /// either theme, so the picker is always doing something.
+    private var stoneSection: some View {
+        Section {
+            swatchRow(StoneSetStyle.allCases) { style in
+                stoneSwatch(for: style)
+            }
+
+            Text(stoneSetStyle.description)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } header: {
+            Text("Pebbles")
+        }
+    }
+
+    private func stoneSwatch(for style: StoneSetStyle) -> some View {
+        swatchTile(
+            title: style.title,
+            isSelected: style == stoneSetStyle,
+            accessibilityLabel: "\(style.title) pebbles"
+        ) {
+            stoneSetStyle = style
+        } content: {
+            StoneSetSwatch(style: style, isDarkMode: isDarkMode)
         }
     }
 

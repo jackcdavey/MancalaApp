@@ -12,6 +12,7 @@ struct ContentView: View {
     @AppStorage("visualTheme") private var visualTheme = AppDefaults.visualTheme
     @AppStorage("boardMaterialStyle") private var boardMaterialStyle = AppDefaults.boardMaterialStyle
     @AppStorage("boardBackgroundStyle") private var boardBackgroundStyle = AppDefaults.boardBackgroundStyle
+    @AppStorage("stoneSetStyle") private var stoneSetStyle = AppDefaults.stoneSetStyle
     @AppStorage("gyroMotionEnabled") private var gyroMotionEnabled = AppDefaults.gyroMotionEnabled
     @AppStorage("stoneAnimationSpeed") private var stoneAnimationSpeed = AppDefaults.stoneAnimationSpeed
     @AppStorage("flipScreenForTwoPlayerTurns") private var flipScreenForTwoPlayerTurns = AppDefaults.flipScreenForTwoPlayerTurns
@@ -980,7 +981,8 @@ struct ContentView: View {
             currentStore: game.isGameOver ? nil : game.storeIndex(for: game.currentPlayer),
             showLabels: shouldShowNumberLabels,
             dark: isDarkMode,
-            material: boardMaterialStyle
+            material: boardMaterialStyle,
+            stoneSet: stoneSetStyle
         )
     }
 
@@ -997,7 +999,8 @@ struct ContentView: View {
             viewSize: CGSize(width: 1, height: 1),
             showLabels: state.showLabels,
             dark: state.dark,
-            material: state.material
+            material: state.material,
+            stoneSet: state.stoneSet
         )
     }
 
@@ -1042,6 +1045,7 @@ struct ContentView: View {
             showLabels: shouldShowNumberLabels,
             isDarkMode: isDarkMode,
             boardMaterial: boardMaterialStyle,
+            stoneSet: stoneSetStyle,
             scene: boardScene
         )
         .frame(height: isPortrait ? boardHeight : nil)
@@ -3537,14 +3541,10 @@ struct ContentView: View {
             return flatStones[index % flatStones.count]
         }
 
-        let colors = [
-            Color(red: 0.13, green: 0.42, blue: 0.92),
-            Color(red: 0.95, green: 0.55, blue: 0.16),
-            Color(red: 0.14, green: 0.62, blue: 0.56),
-            Color(red: 0.84, green: 0.22, blue: 0.34),
-            Color(red: 0.55, green: 0.42, blue: 0.86)
-        ]
-        return colors[index % colors.count]
+        // Same set the 3D board builds its materials from, so the 2D board and
+        // the menu pebbles never disagree with the stones on the table.
+        let tints = stoneSetStyle.tints
+        return tints[index % tints.count].color
     }
 
     private func stoneOffset(for index: Int) -> CGSize {

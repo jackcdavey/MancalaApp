@@ -22,6 +22,7 @@ struct Board3DView: View {
     let showLabels: Bool
     let isDarkMode: Bool
     let boardMaterial: BoardMaterialStyle
+    let stoneSet: StoneSetStyle
     let scene: BoardScene
 
     /// The board's result banner rides in the board's own scene rather than
@@ -203,7 +204,8 @@ struct Board3DView: View {
             viewSize: CGSize(width: 1, height: 1),
             showLabels: showLabels,
             dark: isDarkMode,
-            material: boardMaterial
+            material: boardMaterial,
+            stoneSet: stoneSet
         )
     }
 
@@ -232,6 +234,7 @@ struct Board3DView: View {
     let showLabels: Bool
     let isDarkMode: Bool
     let boardMaterial: BoardMaterialStyle
+    let stoneSet: StoneSetStyle
     let scene: BoardScene
 
     var body: some View {
@@ -268,7 +271,8 @@ struct Board3DView: View {
             viewSize: viewSize,
             showLabels: showLabels,
             dark: isDarkMode,
-            material: boardMaterial
+            material: boardMaterial,
+            stoneSet: stoneSet
         )
     }
 }

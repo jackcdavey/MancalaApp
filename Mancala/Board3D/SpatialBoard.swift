@@ -169,6 +169,7 @@ struct SpatialBoardSyncState: Equatable {
     var showLabels: Bool
     var dark: Bool
     var material: BoardMaterialStyle
+    var stoneSet: StoneSetStyle
 }
 
 /// Volumetric-window content: the board resting on the volume's floor, sized

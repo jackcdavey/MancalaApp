@@ -157,7 +157,7 @@ final class BoardScene {
 
     private func nextFallbackColor() -> Int {
         let color = fallbackColorCursor
-        fallbackColorCursor = (fallbackColorCursor + 1) % StoneFactory.palette.count
+        fallbackColorCursor = (fallbackColorCursor + 1) % StoneFactory.activeSet.tints.count
         return color
     }
     @ObservationIgnored private var highlightRings: [ModelEntity] = []
@@ -230,6 +230,7 @@ final class BoardScene {
         var showLabels: Bool
         var dark: Bool
         var material: BoardMaterialStyle
+        var stoneSet: StoneSetStyle
     }
     @ObservationIgnored private var pendingSync: PendingSync?
 
@@ -418,7 +419,8 @@ final class BoardScene {
                 viewSize: pending.viewSize,
                 showLabels: pending.showLabels,
                 dark: pending.dark,
-                material: pending.material
+                material: pending.material,
+                stoneSet: pending.stoneSet
             )
         } else {
             updateBoardOrientation(animated: false)
@@ -536,6 +538,18 @@ final class BoardScene {
     /// style is still selected. `isSwitchingMaterial` goes true for the
     /// duration of an uncached bake so the UI can show it's working rather
     /// than sitting on an unlabeled pause.
+    /// Swaps the stone set and re-skins every stone already on the board.
+    /// Colours come from the ledger, not the slot, so a stone keeps its
+    /// identity across a set change — the blue one stays the blue one.
+    private func applyStoneSet(_ style: StoneSetStyle) {
+        guard StoneFactory.apply(set: style) else { return }
+        for pit in 0..<stones.count {
+            for (slot, container) in stones[pit].enumerated() where slot < stoneColors[pit].count {
+                StoneFactory.reskin(container, colorIndex: stoneColors[pit][slot])
+            }
+        }
+    }
+
     private func applyMaterial(_ style: BoardMaterialStyle) {
         appliedMaterial = style
         if let cached = materialCache[style] {
@@ -652,7 +666,8 @@ final class BoardScene {
         viewSize: CGSize,
         showLabels: Bool,
         dark: Bool,
-        material: BoardMaterialStyle
+        material: BoardMaterialStyle,
+        stoneSet: StoneSetStyle
     ) {
         guard isBuilt else {
             pendingSync = PendingSync(
@@ -665,7 +680,8 @@ final class BoardScene {
                 viewSize: viewSize,
                 showLabels: showLabels,
                 dark: dark,
-                material: material
+                material: material,
+                stoneSet: stoneSet
             )
             return
         }
@@ -673,6 +689,9 @@ final class BoardScene {
         if material != appliedMaterial {
             applyMaterial(material)
         }
+        // Before `applyStones`, so any stone added by this same sync is built
+        // from the new set rather than skinned twice.
+        applyStoneSet(stoneSet)
         applyStones(pits: pits)
         applyHighlights(playable: playable, hinted: hinted, currentStore: currentStore)
 

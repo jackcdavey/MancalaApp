@@ -14,14 +14,13 @@ private typealias PlatformColor = NSColor
 /// deterministic per-slot placement so piles never reshuffle.
 @MainActor
 enum StoneFactory {
-    /// Same palette as the 2D board's `stoneColor(for:)`.
-    static let palette: [SIMD3<Float>] = [
-        SIMD3(0.13, 0.42, 0.92), // blue
-        SIMD3(0.95, 0.55, 0.16), // orange
-        SIMD3(0.14, 0.62, 0.56), // teal
-        SIMD3(0.84, 0.22, 0.34), // red
-        SIMD3(0.55, 0.42, 0.86)  // purple
-    ]
+    /// Name given to the sphere inside each stone container, so a set change
+    /// can find it again without relying on child order.
+    static let modelName = "stone-model"
+
+    /// The set every stone is currently built from. `BoardScene` drives this
+    /// through `apply(set:)`; nothing else should write it.
+    private(set) static var activeSet: StoneSetStyle = .classic
 
     /// Soft darkening disc under each resting stone. Baked AO plus the
     /// directional shadow usually suffice; flip this off if it reads heavy.
@@ -32,36 +31,63 @@ enum StoneFactory {
     private static var materials: [PhysicallyBasedMaterial] = []
     private static var discMaterial: UnlitMaterial?
 
+    /// Switches sets and drops the cached materials. Returns true when
+    /// something actually changed, so the caller knows whether it needs to
+    /// re-skin the stones already on the board.
+    @discardableResult
+    static func apply(set style: StoneSetStyle) -> Bool {
+        guard style != activeSet || materials.isEmpty else { return false }
+        activeSet = style
+        materials = []
+        prepare()
+        return true
+    }
+
     static func prepare() {
-        guard sphereMesh == nil else { return }
-        sphereMesh = .generateSphere(radius: BoardLayout3D.stoneRadius)
+        // Meshes are set-independent, so they're built once; materials are
+        // rebuilt whenever `apply(set:)` has cleared them.
+        if sphereMesh == nil {
+            sphereMesh = .generateSphere(radius: BoardLayout3D.stoneRadius)
 
-        let discDiameter = BoardLayout3D.stoneRadius * 2.4
-        discMesh = .generatePlane(width: discDiameter, depth: discDiameter, cornerRadius: discDiameter / 2)
+            let discDiameter = BoardLayout3D.stoneRadius * 2.4
+            discMesh = .generatePlane(width: discDiameter, depth: discDiameter, cornerRadius: discDiameter / 2)
 
-        materials = palette.map { rgb in
+            var disc = UnlitMaterial(color: PlatformColor.black)
+            disc.blending = .transparent(opacity: .init(floatLiteral: 0.22))
+            discMaterial = disc
+        }
+
+        guard materials.isEmpty else { return }
+
+        let finish = activeSet.finish
+        materials = activeSet.tints.map { tint in
             var material = PhysicallyBasedMaterial()
             material.baseColor = .init(tint: PlatformColor(
-                red: CGFloat(rgb.x),
-                green: CGFloat(rgb.y),
-                blue: CGFloat(rgb.z),
+                red: CGFloat(tint.red),
+                green: CGFloat(tint.green),
+                blue: CGFloat(tint.blue),
                 alpha: 1
             ))
-            material.roughness = 0.06
-            material.metallic = 0.0
+            material.roughness = .init(floatLiteral: finish.roughness)
+            material.metallic = .init(floatLiteral: finish.metallic)
             material.specular = 1.0
-            material.clearcoat = 1.0
-            material.clearcoatRoughness = 0.08
-            // A hint of translucency reads as glass; true refraction isn't
-            // available in PhysicallyBasedMaterial.
-            material.blending = .transparent(opacity: .init(floatLiteral: 0.94))
+            material.clearcoat = .init(floatLiteral: finish.clearcoat)
+            material.clearcoatRoughness = .init(floatLiteral: finish.clearcoatRoughness)
+            // Below 1 reads as glass; true refraction isn't available in
+            // PhysicallyBasedMaterial.
+            material.blending = .transparent(opacity: .init(floatLiteral: finish.opacity))
             material.faceCulling = .back
             return material
         }
+    }
 
-        var disc = UnlitMaterial(color: PlatformColor.black)
-        disc.blending = .transparent(opacity: .init(floatLiteral: 0.22))
-        discMaterial = disc
+    /// Re-skins a stone container built by `makeRestingStone` — used when the
+    /// set changes under stones that are already on the board, which is
+    /// cheaper and less disruptive than tearing them down and regrowing them.
+    static func reskin(_ container: Entity, colorIndex: Int) {
+        prepare()
+        guard let model = container.findEntity(named: modelName) as? ModelEntity else { return }
+        model.model?.materials = [material(forColorIndex: colorIndex)]
     }
 
     static func material(forColorIndex index: Int) -> PhysicallyBasedMaterial {
@@ -84,6 +110,7 @@ enum StoneFactory {
         container.position = slotInfo.position
 
         let model = ModelEntity(mesh: sphereMesh, materials: [material(forColorIndex: colorIndex)])
+        model.name = modelName
         model.scale = slotInfo.scale
         model.orientation = slotInfo.orientation
         container.addChild(model)

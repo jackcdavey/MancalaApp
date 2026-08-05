@@ -76,6 +76,129 @@ enum BoardMaterialStyle: String, CaseIterable, Identifiable {
     }
 }
 
+/// One stone colour, kept as plain components so both renderers can have it
+/// in the form they need — SwiftUI `Color` for the 2D board and the menu
+/// pebbles, `SIMD3<Float>` for RealityKit's materials.
+struct StoneTint: Hashable {
+    let red: Double
+    let green: Double
+    let blue: Double
+
+    var color: Color {
+        Color(red: red, green: green, blue: blue)
+    }
+}
+
+/// How a stone set's surface behaves under light. Mirrors the subset of
+/// `PhysicallyBasedMaterial` that `StoneFactory` sets, so a set can read as
+/// polished glass, matte river rock, or frosted sea glass without any of them
+/// needing their own code path.
+struct StoneFinish: Hashable {
+    let roughness: Float
+    let metallic: Float
+    let clearcoat: Float
+    let clearcoatRoughness: Float
+    /// Below 1 reads as translucency. True refraction isn't available.
+    let opacity: Float
+}
+
+/// The pebbles. `classic` is the set the app shipped with, down to the exact
+/// components and finish values, so it stays the default and nothing changes
+/// for anyone who never opens the picker.
+///
+/// Sets vary in *finish* as well as colour — that is most of what makes them
+/// feel different, and a palette swap alone reads as a recolour rather than as
+/// a different material.
+enum StoneSetStyle: String, CaseIterable, Identifiable {
+    case classic
+    case riverStone
+    case seaGlass
+    case nightSky
+    case autumn
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .classic: "Classic"
+        case .riverStone: "River Stone"
+        case .seaGlass: "Sea Glass"
+        case .nightSky: "Night Sky"
+        case .autumn: "Autumn"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .classic: "Bright glass gems. The original set."
+        case .riverStone: "Tumbled pebbles, matte and earthy."
+        case .seaGlass: "Frosted, softly translucent pastels."
+        case .nightSky: "Deep jewel tones with a wet polish."
+        case .autumn: "Warm ambers, russets, and olive."
+        }
+    }
+
+    var tints: [StoneTint] {
+        switch self {
+        case .classic:
+            [
+                StoneTint(red: 0.13, green: 0.42, blue: 0.92),
+                StoneTint(red: 0.95, green: 0.55, blue: 0.16),
+                StoneTint(red: 0.14, green: 0.62, blue: 0.56),
+                StoneTint(red: 0.84, green: 0.22, blue: 0.34),
+                StoneTint(red: 0.55, green: 0.42, blue: 0.86),
+            ]
+        case .riverStone:
+            [
+                StoneTint(red: 0.47, green: 0.47, blue: 0.46),
+                StoneTint(red: 0.62, green: 0.58, blue: 0.52),
+                StoneTint(red: 0.35, green: 0.36, blue: 0.38),
+                StoneTint(red: 0.71, green: 0.66, blue: 0.58),
+                StoneTint(red: 0.52, green: 0.48, blue: 0.44),
+            ]
+        case .seaGlass:
+            [
+                StoneTint(red: 0.60, green: 0.82, blue: 0.78),
+                StoneTint(red: 0.78, green: 0.86, blue: 0.72),
+                StoneTint(red: 0.55, green: 0.72, blue: 0.80),
+                StoneTint(red: 0.86, green: 0.82, blue: 0.68),
+                StoneTint(red: 0.70, green: 0.76, blue: 0.84),
+            ]
+        case .nightSky:
+            [
+                StoneTint(red: 0.16, green: 0.20, blue: 0.42),
+                StoneTint(red: 0.32, green: 0.16, blue: 0.42),
+                StoneTint(red: 0.10, green: 0.28, blue: 0.34),
+                StoneTint(red: 0.42, green: 0.18, blue: 0.30),
+                StoneTint(red: 0.12, green: 0.14, blue: 0.24),
+            ]
+        case .autumn:
+            [
+                StoneTint(red: 0.78, green: 0.44, blue: 0.14),
+                StoneTint(red: 0.60, green: 0.22, blue: 0.16),
+                StoneTint(red: 0.86, green: 0.66, blue: 0.28),
+                StoneTint(red: 0.42, green: 0.44, blue: 0.22),
+                StoneTint(red: 0.70, green: 0.34, blue: 0.20),
+            ]
+        }
+    }
+
+    var finish: StoneFinish {
+        switch self {
+        case .classic:
+            StoneFinish(roughness: 0.06, metallic: 0, clearcoat: 1.0, clearcoatRoughness: 0.08, opacity: 0.94)
+        case .riverStone:
+            StoneFinish(roughness: 0.62, metallic: 0, clearcoat: 0.20, clearcoatRoughness: 0.45, opacity: 1.0)
+        case .seaGlass:
+            StoneFinish(roughness: 0.34, metallic: 0, clearcoat: 0.55, clearcoatRoughness: 0.30, opacity: 0.82)
+        case .nightSky:
+            StoneFinish(roughness: 0.04, metallic: 0.15, clearcoat: 1.0, clearcoatRoughness: 0.05, opacity: 0.97)
+        case .autumn:
+            StoneFinish(roughness: 0.20, metallic: 0, clearcoat: 0.80, clearcoatRoughness: 0.16, opacity: 0.95)
+        }
+    }
+}
+
 /// The page behind the 3D board in the Immersive theme.
 ///
 /// Only the Immersive theme offers these — the Flat theme's whole point is the
