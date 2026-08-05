@@ -176,6 +176,11 @@ final class BoardScene {
     /// The carved slab, kept so its finish can be swapped at runtime.
     @ObservationIgnored private var slab: ModelEntity?
     @ObservationIgnored private var appliedMaterial: BoardMaterialStyle?
+    /// Tracked per scene, not read back from `StoneFactory`. visionOS runs two
+    /// `BoardScene`s — the window's and the volume's — over one process-wide
+    /// factory, so "the factory already switched" says nothing about whether
+    /// *this* scene's stones have been re-skinned yet.
+    @ObservationIgnored private var appliedStoneSet: StoneSetStyle?
     @ObservationIgnored private var materialCache: [BoardMaterialStyle: PhysicallyBasedMaterial] = [:]
     /// Bakes currently running, so two callers asking for the same finish share
     /// one bake instead of each starting their own.
@@ -541,8 +546,19 @@ final class BoardScene {
     /// Swaps the stone set and re-skins every stone already on the board.
     /// Colours come from the ledger, not the slot, so a stone keeps its
     /// identity across a set change — the blue one stays the blue one.
+    ///
+    /// The guard is on this scene's own `appliedStoneSet` rather than on
+    /// whether `StoneFactory` changed. Gating on the factory meant that with
+    /// two scenes alive — the window's board and the volume's — whichever
+    /// synced first consumed the "it changed" signal and the second was left
+    /// with stones still wearing the set they were built with, permanently:
+    /// every later change hit the same race.
     private func applyStoneSet(_ style: StoneSetStyle) {
-        guard StoneFactory.apply(set: style) else { return }
+        guard appliedStoneSet != style else { return }
+        appliedStoneSet = style
+        // Cheap when the factory is already on this set, and the rebuild it
+        // does otherwise is what new stones will be built from.
+        StoneFactory.apply(set: style)
         for pit in 0..<stones.count {
             for (slot, container) in stones[pit].enumerated() where slot < stoneColors[pit].count {
                 StoneFactory.reskin(container, colorIndex: stoneColors[pit][slot])
