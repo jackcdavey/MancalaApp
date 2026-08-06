@@ -4,7 +4,7 @@ import Foundation
 ///
 /// `ContentView` and `Scripts/ai-arena.swift` both go through here, which is
 /// what makes a headless match a faithful rehearsal of what the app will do.
-enum AIMoveSelector {
+nonisolated enum AIMoveSelector {
 
     /// Chooses a pit for `player`.
     ///

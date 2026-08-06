@@ -5,7 +5,7 @@ import Foundation
 /// This type is deliberately Foundation-only so the headless tools in `Scripts/`
 /// can compile it without SwiftUI. The `tint` colour lives in a SwiftUI
 /// extension in `GameSettings.swift`.
-enum AIDifficulty: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum AIDifficulty: String, CaseIterable, Identifiable, Sendable {
     case easy
     case medium
     case hard
@@ -101,7 +101,7 @@ enum AIDifficulty: String, CaseIterable, Identifiable, Sendable {
 }
 
 /// The knobs that separate one difficulty from the next.
-struct AISearchProfile: Sendable {
+nonisolated struct AISearchProfile: Sendable {
     /// `false` means the tier uses `HeuristicAIPlayer` instead of the solver.
     let usesSearch: Bool
     /// Iterative-deepening cap in *turns*. `nil` lets the solver derive one from its budget.

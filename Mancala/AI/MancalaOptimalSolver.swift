@@ -18,7 +18,7 @@ import Foundation
 ///   searched to", which is **not** the same as "this is the true value of the
 ///   position". Only `proven` means the latter, and only `proven` may stop
 ///   iterative deepening early.
-struct MancalaOptimalSolver {
+nonisolated struct MancalaOptimalSolver {
 
     // MARK: - Public surface
 
@@ -248,18 +248,46 @@ struct MancalaOptimalSolver {
         let high: UInt64
     }
 
-    private struct TranspositionEntry {
-        enum Bound {
+    /// Packed into eight bytes rather than the forty a struct of `Int`s and an
+    /// `Int?` costs.
+    ///
+    /// The table holds millions of these, and at Impossible's budget the fat
+    /// layout put the search's peak footprint near 800MB — enough memory
+    /// pressure to stall the device, this app's own 3D board included. The
+    /// stored ranges are nowhere near their limits: scores are bounded by
+    /// `infinity` (10^6), depth by `maximumSearchDepth`, and a move is a pit
+    /// index, with -1 standing in for `nil` so the optional costs no byte of
+    /// its own.
+    ///
+    /// `nonisolated` because the search that reads and writes it is; without it
+    /// the accessors below would pick up the project's default main-actor
+    /// isolation, which the stored properties they replaced did not have.
+    private nonisolated struct TranspositionEntry {
+        nonisolated enum Bound: UInt8 {
             case exact
             case lower
             case upper
         }
 
-        let depth: Int
-        let score: Int
-        let move: Int?
-        let bound: Bound
-        let proven: Bool
+        private static let provenFlag: UInt8 = 0b100
+
+        private let storedScore: Int32
+        private let storedDepth: Int16
+        private let storedMove: Int8
+        private let flags: UInt8
+
+        init(depth: Int, score: Int, move: Int?, bound: Bound, proven: Bool) {
+            storedScore = Int32(score)
+            storedDepth = Int16(depth)
+            storedMove = move.map(Int8.init) ?? -1
+            flags = bound.rawValue | (proven ? Self.provenFlag : 0)
+        }
+
+        var depth: Int { Int(storedDepth) }
+        var score: Int { Int(storedScore) }
+        var move: Int? { storedMove < 0 ? nil : Int(storedMove) }
+        var bound: Bound { Bound(rawValue: flags & 0b11) ?? .exact }
+        var proven: Bool { flags & Self.provenFlag != 0 }
     }
 
     private enum SearchAbort: Error {
@@ -305,7 +333,15 @@ struct MancalaOptimalSolver {
             timeLimit = options.timeLimit.map { max(0.05, $0) }
             endgameThreshold = max(0, options.exactEndgameStoneThreshold)
             totalStones = pits.reduce(0, +)
-            tableLimit = min(max(50_000, maxPositions / 3), 4_000_000)
+            // The ceiling is a memory budget: this runs on a phone that is also
+            // holding a RealityKit board in memory. At the old 4,000,000 the
+            // table alone took Impossible's default budget to a ~776MB peak,
+            // which is enough memory pressure to stall the device — the search
+            // ran off the main thread and the app still froze. Two million
+            // holds that to ~199MB and reaches the same depth on all but the
+            // occasional midgame position. Only Impossible ever reaches the
+            // ceiling; the lower tiers are still sized by their own budgets.
+            tableLimit = min(max(50_000, maxPositions / 3), 2_000_000)
             killers = [Int](repeating: -1, count: (MancalaOptimalSolver.maximumSearchDepth + 2) * 2)
             history = [Int](repeating: 0, count: 28)
             self.progress = progress

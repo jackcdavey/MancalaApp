@@ -7,7 +7,7 @@ import Foundation
 /// `@State` board directly. It takes the board as a parameter now so the
 /// headless tools in `Scripts/` can drive it. The scoring weights are unchanged
 /// from that version, so existing behaviour is preserved.
-enum HeuristicAIPlayer {
+nonisolated enum HeuristicAIPlayer {
 
     struct RankedPit {
         let pit: Int

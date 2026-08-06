@@ -1,13 +1,13 @@
 import Foundation
 
-struct CaptureMove {
+nonisolated struct CaptureMove {
     let landingIndex: Int
     let oppositeIndex: Int
     let storeIndex: Int
     let capturedStones: Int
 }
 
-struct MancalaGame {
+nonisolated struct MancalaGame {
     private(set) var pits: [Int] = [4, 4, 4, 4, 4, 4, 0, 4, 4, 4, 4, 4, 4, 0]
     private(set) var currentPlayer: Player = .playerOne
     private(set) var winner: Player?

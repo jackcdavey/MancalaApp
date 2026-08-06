@@ -1,4 +1,4 @@
-enum Player: String, Equatable {
+nonisolated enum Player: String, Equatable {
     case playerOne
     case playerTwo
 

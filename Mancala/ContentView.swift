@@ -3359,6 +3359,7 @@ struct ContentView: View {
         )
     }
 
+    @MainActor
     private func chooseAIPit(for player: Player, difficulty: AIDifficulty) async -> Int? {
         let legalPits = game.legalPits(for: player)
         guard !legalPits.isEmpty else { return nil }
@@ -3372,26 +3373,47 @@ struct ContentView: View {
             let solverOptions = difficulty == .impossible
                 ? impossibleSearchOptions
                 : AIMoveSelector.options(for: profile)
-            let progress: @Sendable (String) -> Void = { entry in
-                Task { @MainActor in
+            // The solver reports about a hundred times a second for as long as
+            // it runs. Delivered one main-actor hop at a time that re-rendered
+            // the game view on every frame of an Impossible search and the
+            // whole app stopped taking input; the relay coalesces them into a
+            // bounded trickle. Progress that belongs to a search this view has
+            // already moved on from is dropped rather than logged out of order.
+            let searchGeneration = aiSearchGeneration
+            let relay = AISearchProgressRelay { entries, searchProgress in
+                guard searchGeneration == aiSearchGeneration else { return }
+                for entry in entries {
                     appendAIThought(entry)
                 }
+                guard let searchProgress else { return }
+                updateImpossibleProgress(
+                    searched: searchProgress.searched,
+                    maximum: searchProgress.maximum,
+                    elapsed: searchProgress.elapsed,
+                    timeLimit: searchProgress.timeLimit,
+                    completedDepth: searchProgress.completedDepth,
+                    cacheEntries: searchProgress.cacheEntries,
+                    bestMove: searchProgress.bestMove,
+                    isExact: searchProgress.isExact
+                )
             }
-            let progressUpdate: @Sendable (MancalaOptimalSolver.SearchProgress) -> Void = { searchProgress in
-                Task { @MainActor in
-                    updateImpossibleProgress(
-                        searched: searchProgress.searched,
-                        maximum: searchProgress.maximum,
-                        elapsed: searchProgress.elapsed,
-                        timeLimit: searchProgress.timeLimit,
-                        completedDepth: searchProgress.completedDepth,
-                        cacheEntries: searchProgress.cacheEntries,
-                        bestMove: searchProgress.bestMove,
-                        isExact: searchProgress.isExact
-                    )
-                }
-            }
+            let progress = relay.progressHandler
+            let progressUpdate = relay.progressUpdateHandler
             let seed = rng.next()
+            // Every type this closure touches — `SplitMix64`, `MancalaGame`,
+            // `AIMoveSelector` and the solver behind it — must stay declared
+            // `nonisolated`, and that is not a tidiness point.
+            //
+            // The target defaults to main-actor isolation, and `Task.detached`
+            // takes an `@isolated(any)` closure: it runs the body on whatever
+            // actor the closure is isolated to. Calling one main-actor-isolated
+            // function from in here is enough to infer the whole closure
+            // `@MainActor`, at which point this "detached" search runs on the
+            // main thread and the app stops responding for as long as
+            // Impossible thinks. It read as correct for a long time and wasn't.
+            // Reading the code cannot tell you which way it went — `sample` the
+            // process during a search and look at which thread the alpha-beta
+            // frames sit on.
             let searchTask = Task.detached(priority: .userInitiated) { () -> Int? in
                 var searchRNG = SplitMix64(seed: seed)
                 let snapshot = MancalaGame(pits: pitsSnapshot, currentPlayer: player)
@@ -3406,7 +3428,11 @@ struct ContentView: View {
                 )
             }
             aiSearchTask = searchTask
-            return await searchTask.value ?? legalPits.first
+            let selectedPit = await searchTask.value
+            // The closing lines say which depth completed and why the search
+            // stopped, so they have to land before "Selected pit N."
+            relay.finish()
+            return selectedPit ?? legalPits.first
         }
 
         if #available(iOS 27.0, *), FoundationModelAIMoveProvider.isAvailable {

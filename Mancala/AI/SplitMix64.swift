@@ -5,7 +5,7 @@ import Foundation
 ///
 /// The app seeds it from the clock; `Scripts/ai-arena.swift` seeds it from a
 /// flag, which is what makes a headless match reproducible move for move.
-struct SplitMix64: RandomNumberGenerator, Sendable {
+nonisolated struct SplitMix64: RandomNumberGenerator, Sendable {
     private var state: UInt64
 
     init(seed: UInt64) {
