@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="sBlue" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#8FB6FF"/><stop offset="0.55" stop-color="#216BEB"/><stop offset="1" stop-color="#123C86"/>
+    </radialGradient>
+    <radialGradient id="sOrange" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#FFD49B"/><stop offset="0.55" stop-color="#F28C29"/><stop offset="1" stop-color="#9E4C0E"/>
+    </radialGradient>
+    <radialGradient id="sTeal" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#84E0D0"/><stop offset="0.55" stop-color="#249E8F"/><stop offset="1" stop-color="#0D544D"/>
+    </radialGradient>
+    <radialGradient id="sCrimson" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#F79AA9"/><stop offset="0.55" stop-color="#D63857"/><stop offset="1" stop-color="#7F172E"/>
+    </radialGradient>
+    <radialGradient id="sViolet" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#CBB4F8"/><stop offset="0.55" stop-color="#8C6BDB"/><stop offset="1" stop-color="#4E358C"/>
+    </radialGradient>
+    <radialGradient id="spec" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="contact" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.3" stop-color="#000000" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Already sown, resting in the store -->
+  <g fill="url(#contact)">
+    <ellipse cx="302" cy="798" rx="74" ry="44"/>
+    <ellipse cx="426" cy="830" rx="64" ry="38"/>
+  </g>
+  <circle cx="300" cy="780" r="62" fill="url(#sTeal)"/><circle cx="278" cy="758" r="22" fill="url(#spec)"/>
+  <circle cx="424" cy="812" r="52" fill="url(#sViolet)"/><circle cx="406" cy="794" r="18" fill="url(#spec)"/>
+
+  <!-- In flight: smaller and dimmer the further back along the arc -->
+  <circle cx="856" cy="172" r="26" fill="url(#sViolet)" opacity="0.5"/>
+  <circle cx="832" cy="306" r="34" fill="url(#sBlue)" opacity="0.72"/><circle cx="820" cy="294" r="12" fill="url(#spec)" opacity="0.6"/>
+  <circle cx="778" cy="452" r="44" fill="url(#sTeal)" opacity="0.88"/><circle cx="762" cy="436" r="16" fill="url(#spec)" opacity="0.8"/>
+  <circle cx="700" cy="566" r="54" fill="url(#sCrimson)"/><circle cx="681" cy="547" r="19" fill="url(#spec)"/>
+  <circle cx="596" cy="660" r="64" fill="url(#sOrange)"/><circle cx="573" cy="637" r="23" fill="url(#spec)"/>
+</svg>

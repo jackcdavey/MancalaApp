@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="marble" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#EDEBEA"/>
+      <stop offset="0.5" stop-color="#D2D0D4"/>
+      <stop offset="1" stop-color="#AFADB6"/>
+    </linearGradient>
+    <linearGradient id="slabEdge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8F8D96"/>
+      <stop offset="1" stop-color="#5C5A66"/>
+    </linearGradient>
+    <clipPath id="slabClip">
+      <rect x="40" y="292" width="944" height="440" rx="220"/>
+    </clipPath>
+    <radialGradient id="cast" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.45" stop-color="#04050E" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#04050E" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Cast shadow, or the slab floats in front of the dusk instead of in it -->
+  <ellipse cx="512" cy="770" rx="470" ry="130" fill="url(#cast)"/>
+
+  <!-- Slab thickness, so the board sits in the dusk rather than being pasted on -->
+  <rect x="40" y="314" width="944" height="440" rx="220" fill="url(#slabEdge)"/>
+  <rect x="40" y="292" width="944" height="440" rx="220" fill="url(#marble)"/>
+
+  <!-- Drifting veins -->
+  <g clip-path="url(#slabClip)" fill="none" stroke-linecap="round">
+    <path d="M40 372 C 220 342, 380 424, 560 386 S 880 410, 984 368"
+          stroke="#8E8B98" stroke-opacity="0.42" stroke-width="6"/>
+    <path d="M40 396 C 240 372, 400 442, 580 408 S 890 430, 984 396"
+          stroke="#8E8B98" stroke-opacity="0.2" stroke-width="3"/>
+    <path d="M40 528 C 260 500, 420 566, 620 528 S 900 548, 984 512"
+          stroke="#7C7A88" stroke-opacity="0.36" stroke-width="7"/>
+    <path d="M40 646 C 200 620, 420 690, 640 650 S 900 668, 984 640"
+          stroke="#8E8B98" stroke-opacity="0.4" stroke-width="5"/>
+    <path d="M40 676 C 240 654, 440 714, 660 678 S 910 694, 984 672"
+          stroke="#8E8B98" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+
+  <!-- Cool moonlight on the chamfer -->
+  <rect x="40" y="292" width="944" height="440" rx="220"
+        fill="none" stroke="#F6F7FF" stroke-opacity="0.5" stroke-width="7"/>
+</svg>

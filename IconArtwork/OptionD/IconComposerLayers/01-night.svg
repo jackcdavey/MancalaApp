@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="night" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#221913"/>
+      <stop offset="0.5" stop-color="#140D09"/>
+      <stop offset="1" stop-color="#080505"/>
+    </linearGradient>
+    <radialGradient id="hearth" cx="0.56" cy="0.74" r="0.62">
+      <stop offset="0" stop-color="#FFB65C" stop-opacity="0.3"/>
+      <stop offset="0.55" stop-color="#C4691F" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#C4691F" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#night)"/>
+  <rect width="1024" height="1024" fill="url(#hearth)"/>
+</svg>

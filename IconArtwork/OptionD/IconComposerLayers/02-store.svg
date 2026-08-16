@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="hollow" cx="0.4" cy="0.24" r="0.9">
+      <stop offset="0" stop-color="#120C08"/>
+      <stop offset="0.55" stop-color="#251811"/>
+      <stop offset="1" stop-color="#5E3B1E"/>
+    </radialGradient>
+    <linearGradient id="brassRim" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#120C07" stop-opacity="0.95"/>
+      <stop offset="0.4" stop-color="#7A5B26" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FFDDA0" stop-opacity="0.95"/>
+    </linearGradient>
+  </defs>
+  <!-- The store: where every sow is heading -->
+  <rect x="170" y="612" width="580" height="310" rx="155" fill="url(#hollow)"
+        stroke="url(#brassRim)" stroke-width="18"/>
+</svg>

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="brass" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#F6E3AE"/>
+      <stop offset="0.38" stop-color="#D3AC59"/>
+      <stop offset="0.72" stop-color="#A87C2C"/>
+      <stop offset="1" stop-color="#E4C983"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Six pits a side and two stores: the real board, not a shorthand for it.
+       A mark that miscounts is making a false claim about the game. -->
+  <g id="plate">
+    <rect x="148" y="362" width="104" height="300" rx="52"/>
+    <rect x="772" y="362" width="104" height="300" rx="52"/>
+    <circle cx="295" cy="424" r="38"/><circle cx="382" cy="424" r="38"/>
+    <circle cx="469" cy="424" r="38"/><circle cx="555" cy="424" r="38"/>
+    <circle cx="642" cy="424" r="38"/><circle cx="729" cy="424" r="38"/>
+    <circle cx="295" cy="600" r="38"/><circle cx="382" cy="600" r="38"/>
+    <circle cx="469" cy="600" r="38"/><circle cx="555" cy="600" r="38"/>
+    <circle cx="642" cy="600" r="38"/><circle cx="729" cy="600" r="38"/>
+  </g>
+
+  <!-- Engraved shadow, one notch down and right -->
+  <use href="#plate" fill="#03150F" fill-opacity="0.55" transform="translate(6 8)"/>
+  <use href="#plate" fill="url(#brass)"/>
+</svg>

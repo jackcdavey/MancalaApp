@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="walnut" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#9A663A"/>
+      <stop offset="0.42" stop-color="#79492A"/>
+      <stop offset="1" stop-color="#55311A"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2E1A0D"/>
+      <stop offset="1" stop-color="#170D06"/>
+    </linearGradient>
+    <clipPath id="slabClip">
+      <rect x="-150" y="268" width="1324" height="488" rx="244"/>
+    </clipPath>
+  </defs>
+
+  <!-- Tilted so the board reads as an object on a table, not a diagram -->
+  <g transform="translate(0 -20) rotate(-9 512 512)">
+    <!-- Slab thickness -->
+    <rect x="-150" y="292" width="1324" height="488" rx="244" fill="url(#edge)"/>
+    <rect x="-150" y="268" width="1324" height="488" rx="244" fill="url(#walnut)"/>
+
+    <!-- Open grain -->
+    <g clip-path="url(#slabClip)" fill="none" stroke="#2A1810" stroke-linecap="round">
+      <path d="M-150 340 C 120 320, 420 366, 700 336 S 1080 356, 1174 336" stroke-opacity="0.22" stroke-width="7"/>
+      <path d="M-150 402 C 160 384, 460 424, 760 398 S 1090 414, 1174 398" stroke-opacity="0.14" stroke-width="5"/>
+      <path d="M-150 486 C 200 470, 480 508, 780 480 S 1100 496, 1174 480" stroke-opacity="0.2" stroke-width="9"/>
+      <path d="M-150 556 C 180 542, 470 578, 770 552 S 1100 566, 1174 552" stroke-opacity="0.13" stroke-width="5"/>
+      <path d="M-150 640 C 150 626, 450 664, 760 638 S 1090 652, 1174 638" stroke-opacity="0.2" stroke-width="8"/>
+      <path d="M-150 706 C 190 692, 500 726, 800 700 S 1110 714, 1174 700" stroke-opacity="0.12" stroke-width="5"/>
+    </g>
+
+    <!-- Chamfer catching the lamp -->
+    <rect x="-150" y="268" width="1324" height="488" rx="244"
+          fill="none" stroke="#D6A063" stroke-opacity="0.3" stroke-width="8"/>
+  </g>
+</svg>

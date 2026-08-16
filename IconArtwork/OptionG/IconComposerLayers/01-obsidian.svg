@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="obsidian" x1="0.12" y1="0" x2="0.88" y2="1">
+      <stop offset="0" stop-color="#23222A"/>
+      <stop offset="0.5" stop-color="#14131A"/>
+      <stop offset="1" stop-color="#08080C"/>
+    </linearGradient>
+    <!-- Volcanic glass takes a broad, soft reflection rather than a hot spot -->
+    <linearGradient id="glassSheen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0.05" stop-color="#9FB4D8" stop-opacity="0.14"/>
+      <stop offset="0.4" stop-color="#9FB4D8" stop-opacity="0"/>
+      <stop offset="0.78" stop-color="#9FB4D8" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#9FB4D8" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#obsidian)"/>
+  <rect width="1024" height="1024" fill="url(#glassSheen)"/>
+</svg>

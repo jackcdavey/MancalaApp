@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="stone" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#125B3E"/>
+      <stop offset="0.5" stop-color="#0B3E2B"/>
+      <stop offset="1" stop-color="#052018"/>
+    </linearGradient>
+    <clipPath id="frameClip">
+      <rect width="1024" height="1024"/>
+    </clipPath>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#stone)"/>
+
+  <!-- Malachite banding: concentric growth rings, off-centre -->
+  <g clip-path="url(#frameClip)" fill="none" stroke-linecap="round">
+    <ellipse cx="248" cy="812" rx="180" ry="150" stroke="#1B7A54" stroke-opacity="0.4" stroke-width="26"/>
+    <ellipse cx="248" cy="812" rx="238" ry="200" stroke="#083626" stroke-opacity="0.5" stroke-width="14"/>
+    <ellipse cx="248" cy="812" rx="300" ry="256" stroke="#1F8A5F" stroke-opacity="0.3" stroke-width="30"/>
+    <ellipse cx="248" cy="812" rx="372" ry="318" stroke="#062B1F" stroke-opacity="0.45" stroke-width="18"/>
+    <ellipse cx="248" cy="812" rx="452" ry="388" stroke="#1B7A54" stroke-opacity="0.24" stroke-width="34"/>
+    <ellipse cx="248" cy="812" rx="546" ry="470" stroke="#062B1F" stroke-opacity="0.4" stroke-width="20"/>
+    <ellipse cx="248" cy="812" rx="652" ry="560" stroke="#1F8A5F" stroke-opacity="0.2" stroke-width="38"/>
+    <ellipse cx="248" cy="812" rx="770" ry="660" stroke="#062B1F" stroke-opacity="0.35" stroke-width="22"/>
+    <ellipse cx="248" cy="812" rx="900" ry="770" stroke="#1B7A54" stroke-opacity="0.18" stroke-width="40"/>
+  </g>
+</svg>

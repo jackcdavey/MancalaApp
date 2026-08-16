@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <g>
+
+  <defs>
+    <linearGradient id="L0_page" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#F9F4EB"/>
+      <stop offset="0.5" stop-color="#F0EADD"/>
+      <stop offset="1" stop-color="#E2D9C4"/>
+    </linearGradient>
+    <radialGradient id="L0_pageGlow" cx="0.3" cy="0.22" r="0.8">
+      <stop offset="0" stop-color="#FFFEF8" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#FFFEF8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#L0_page)"/>
+  <rect width="1024" height="1024" fill="url(#L0_pageGlow)"/>
+
+  </g>
+  <g>
+
+  <defs>
+    <!-- objectBoundingBox units, so one pair of gradients carves every well -->
+    <radialGradient id="L1_well" cx="0.35" cy="0.3" r="0.88">
+      <stop offset="0" stop-color="#B5A280"/>
+      <stop offset="0.5" stop-color="#CBBC9C"/>
+      <stop offset="1" stop-color="#EDE4D0"/>
+    </radialGradient>
+    <!-- Light from the top left: shadowed rim above, catch-light below -->
+    <linearGradient id="L1_rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4A4234" stop-opacity="0.55"/>
+      <stop offset="0.45" stop-color="#4A4234" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Stores -->
+  <g fill="url(#L1_well)" stroke="url(#L1_rim)" stroke-width="11">
+    <rect x="86" y="232" width="124" height="560" rx="62"/>
+    <rect x="814" y="232" width="124" height="560" rx="62"/>
+  </g>
+
+  <!-- Pits, two rows of three -->
+  <g fill="url(#L1_well)" stroke="url(#L1_rim)" stroke-width="11">
+    <circle cx="322" cy="330" r="84"/>
+    <circle cx="512" cy="330" r="84"/>
+    <circle cx="702" cy="330" r="84"/>
+    <circle cx="322" cy="694" r="84"/>
+    <circle cx="512" cy="694" r="84"/>
+    <circle cx="702" cy="694" r="84"/>
+  </g>
+
+  </g>
+  <g>
+
+  <defs>
+    <!-- Classic stone set, matching StoneSetStyle.classic -->
+    <radialGradient id="L2_sBlue" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#6C9CFF"/><stop offset="0.55" stop-color="#216BEB"/><stop offset="1" stop-color="#12408F"/>
+    </radialGradient>
+    <radialGradient id="L2_sOrange" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#FFC177"/><stop offset="0.55" stop-color="#F28C29"/><stop offset="1" stop-color="#A85310"/>
+    </radialGradient>
+    <radialGradient id="L2_sTeal" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#63CFBE"/><stop offset="0.55" stop-color="#249E8F"/><stop offset="1" stop-color="#0F5B53"/>
+    </radialGradient>
+    <radialGradient id="L2_sCrimson" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#F0798D"/><stop offset="0.55" stop-color="#D63857"/><stop offset="1" stop-color="#8A1B33"/>
+    </radialGradient>
+    <radialGradient id="L2_sViolet" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#B79BF0"/><stop offset="0.55" stop-color="#8C6BDB"/><stop offset="1" stop-color="#553B95"/>
+    </radialGradient>
+    <radialGradient id="L2_spec" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="L2_contact" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.3" stop-color="#3A3226" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#3A3226" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Contact shadows first, so no stone sits on a neighbour's shadow -->
+  <g fill="url(#L2_contact)">
+    <ellipse cx="140" cy="350" rx="50" ry="32"/><ellipse cx="158" cy="438" rx="50" ry="32"/>
+    <ellipse cx="138" cy="526" rx="50" ry="32"/><ellipse cx="156" cy="614" rx="50" ry="32"/>
+    <ellipse cx="868" cy="330" rx="50" ry="32"/><ellipse cx="886" cy="418" rx="50" ry="32"/>
+    <ellipse cx="864" cy="506" rx="50" ry="32"/><ellipse cx="884" cy="594" rx="50" ry="32"/>
+    <ellipse cx="870" cy="682" rx="50" ry="32"/>
+    <ellipse cx="496" cy="324" rx="46" ry="30"/><ellipse cx="532" cy="358" rx="46" ry="30"/>
+    <ellipse cx="684" cy="316" rx="42" ry="27"/><ellipse cx="722" cy="328" rx="42" ry="27"/>
+    <ellipse cx="700" cy="362" rx="42" ry="27"/>
+    <ellipse cx="322" cy="704" rx="50" ry="32"/>
+    <ellipse cx="686" cy="688" rx="46" ry="30"/><ellipse cx="722" cy="720" rx="46" ry="30"/>
+  </g>
+
+  <!-- Left store -->
+  <g>
+    <circle cx="140" cy="340" r="42" fill="url(#L2_sViolet)"/><circle cx="126" cy="326" r="15" fill="url(#L2_spec)"/>
+    <circle cx="158" cy="428" r="42" fill="url(#L2_sOrange)"/><circle cx="144" cy="414" r="15" fill="url(#L2_spec)"/>
+    <circle cx="138" cy="516" r="42" fill="url(#L2_sTeal)"/><circle cx="124" cy="502" r="15" fill="url(#L2_spec)"/>
+    <circle cx="156" cy="604" r="42" fill="url(#L2_sBlue)"/><circle cx="142" cy="590" r="15" fill="url(#L2_spec)"/>
+  </g>
+
+  <!-- Right store, one stone ahead -->
+  <g>
+    <circle cx="868" cy="320" r="42" fill="url(#L2_sCrimson)"/><circle cx="854" cy="306" r="15" fill="url(#L2_spec)"/>
+    <circle cx="886" cy="408" r="42" fill="url(#L2_sBlue)"/><circle cx="872" cy="394" r="15" fill="url(#L2_spec)"/>
+    <circle cx="864" cy="496" r="42" fill="url(#L2_sOrange)"/><circle cx="850" cy="482" r="15" fill="url(#L2_spec)"/>
+    <circle cx="884" cy="584" r="42" fill="url(#L2_sViolet)"/><circle cx="870" cy="570" r="15" fill="url(#L2_spec)"/>
+    <circle cx="870" cy="672" r="42" fill="url(#L2_sTeal)"/><circle cx="856" cy="658" r="15" fill="url(#L2_spec)"/>
+  </g>
+
+  <!-- Pits -->
+  <g>
+    <circle cx="496" cy="314" r="38" fill="url(#L2_sBlue)"/><circle cx="483" cy="301" r="14" fill="url(#L2_spec)"/>
+    <circle cx="532" cy="348" r="38" fill="url(#L2_sCrimson)"/><circle cx="519" cy="335" r="14" fill="url(#L2_spec)"/>
+
+    <circle cx="684" cy="306" r="34" fill="url(#L2_sTeal)"/><circle cx="672" cy="294" r="12" fill="url(#L2_spec)"/>
+    <circle cx="722" cy="318" r="34" fill="url(#L2_sViolet)"/><circle cx="710" cy="306" r="12" fill="url(#L2_spec)"/>
+    <circle cx="700" cy="352" r="34" fill="url(#L2_sOrange)"/><circle cx="688" cy="340" r="12" fill="url(#L2_spec)"/>
+
+    <circle cx="322" cy="694" r="42" fill="url(#L2_sOrange)"/><circle cx="308" cy="680" r="15" fill="url(#L2_spec)"/>
+
+    <circle cx="686" cy="678" r="38" fill="url(#L2_sCrimson)"/><circle cx="673" cy="665" r="14" fill="url(#L2_spec)"/>
+    <circle cx="722" cy="710" r="38" fill="url(#L2_sTeal)"/><circle cx="709" cy="697" r="14" fill="url(#L2_spec)"/>
+  </g>
+
+  </g>
+  <g>
+
+  <defs>
+    <linearGradient id="L3_sheen" x1="0" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.45"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="L3_vignette" cx="0.5" cy="0.48" r="0.75">
+      <stop offset="0.55" stop-color="#6B5F45" stop-opacity="0"/>
+      <stop offset="1" stop-color="#6B5F45" stop-opacity="0.2"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#L3_sheen)"/>
+  <rect width="1024" height="1024" fill="url(#L3_vignette)"/>
+
+  </g>
+</svg>

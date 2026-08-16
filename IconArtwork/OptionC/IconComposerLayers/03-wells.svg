@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="hollow" cx="0.36" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#150D06"/>
+      <stop offset="0.55" stop-color="#2B1A0E"/>
+      <stop offset="1" stop-color="#5A3419"/>
+    </radialGradient>
+    <linearGradient id="wellRim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#120A04" stop-opacity="0.85"/>
+      <stop offset="0.5" stop-color="#120A04" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#E7B276" stop-opacity="0.75"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(0 -20) rotate(-9 512 512)">
+    <!-- Store, cropped by the left edge -->
+    <rect x="16" y="330" width="172" height="364" rx="86" fill="url(#hollow)" stroke="url(#wellRim)" stroke-width="12"/>
+
+    <!-- Pits marching off the right edge -->
+    <g fill="url(#hollow)" stroke="url(#wellRim)" stroke-width="12">
+      <circle cx="326" cy="396" r="76"/>
+      <circle cx="506" cy="396" r="76"/>
+      <circle cx="686" cy="396" r="76"/>
+      <circle cx="866" cy="396" r="76"/>
+      <circle cx="326" cy="628" r="76"/>
+      <circle cx="506" cy="628" r="76"/>
+      <circle cx="686" cy="628" r="76"/>
+      <circle cx="866" cy="628" r="76"/>
+    </g>
+  </g>
+</svg>

@@ -20,6 +20,11 @@ import SwiftUI
 /// The whole thing lives and dies with the menu: the drive loop is a `.task`,
 /// so entering a game or opening the challenge list cancels it, and coming back
 /// restarts from the resting row.
+///
+/// Pacing is all in one place: see `Tuning` for the delay before the first
+/// move, the gaps between cycles, how fast the travel itself plays, and how
+/// often routines interrupt. `Push` holds the touch-response knobs and `Layout`
+/// the sizes.
 struct MenuPebbleStage: View {
     /// Injected rather than duplicated—`ContentView.stoneColor(for:)` already
     /// branches on the visual theme.
@@ -160,6 +165,7 @@ struct MenuPebbleStage: View {
     private func pushGesture(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                guard Tuning.pushEnabled else { return }
                 let point = CGPoint(x: value.location.x - size.width / 2,
                                     y: value.location.y - size.height / 2)
                 if let last = lastPushPoint, hypot(point.x - last.x, point.y - last.y) < Push.resweep {
@@ -204,7 +210,7 @@ struct MenuPebbleStage: View {
 
             nextImpulse[index] = CGSize(width: target.x - home.x, height: target.y - home.y)
             let radius = Layout.diameters[index] / 2
-            nextRoll[index] += Double((target.x - current.x) / radius) * (180 / .pi) * Layout.rollFactor
+            nextRoll[index] += Double((target.x - current.x) / radius) * (180 / .pi) * Tuning.rollFactor
         }
 
         impulseAnimation = reduceMotion ? Push.calmShove : Push.shove
@@ -232,7 +238,7 @@ struct MenuPebbleStage: View {
     }
 
     private func runIdleLoop() async {
-        guard !reduceMotion, scenePhase == .active else {
+        guard !reduceMotion, scenePhase == .active, Tuning.idleMotionEnabled else {
             restToHome()
             return
         }
@@ -242,24 +248,26 @@ struct MenuPebbleStage: View {
         var routines: [Routine] = []
         var lastShape: Formation?
         // Routines are the rare treat, so a few plain cycles come first.
-        var cyclesUntilRoutine = Int.random(in: 2...4)
+        var cyclesUntilRoutine = Int.random(in: Tuning.cyclesBeforeFirstRoutine)
 
         // Let the menu's own fade-in finish before anything moves.
-        guard await pause(1.2) else { return }
+        guard await pause(Tuning.startupDelay) else { return }
 
         while !Task.isCancelled {
-            if cyclesUntilRoutine == 0 {
+            if cyclesUntilRoutine <= 0, !Tuning.routineDeck.isEmpty {
                 if routines.isEmpty {
-                    routines = Routine.all.shuffled()
+                    routines = Tuning.routineDeck.shuffled()
                 }
-                cyclesUntilRoutine = Int.random(in: 2...5)
+                cyclesUntilRoutine = Int.random(in: Tuning.cyclesBetweenRoutines)
                 guard await perform(routines.removeLast()) else { return }
                 continue
             }
-            cyclesUntilRoutine -= 1
+            // Floored rather than decremented freely: with an empty routine
+            // deck nothing ever consumes the count.
+            cyclesUntilRoutine = max(cyclesUntilRoutine - 1, 0)
 
             if shapes.isEmpty {
-                shapes = Formation.roaming.shuffled()
+                shapes = (Tuning.formationDeck.isEmpty ? Formation.roaming : Tuning.formationDeck).shuffled()
                 // `removeLast` draws from the end, so a repeat of the shape we
                 // just showed is only possible at that one position.
                 if shapes.count > 1, shapes.last == lastShape {
@@ -267,42 +275,52 @@ struct MenuPebbleStage: View {
                 }
             }
             if moods.isEmpty {
-                moods = Mood.all.shuffled()
+                moods = (Tuning.moodDeck.isEmpty ? Mood.all : Tuning.moodDeck).shuffled()
             }
 
             let nextMood = moods.removeLast()
             let nextShape = shapes.removeLast()
             lastShape = nextShape
 
+            let speed = Tuning.clamped(speed: Tuning.travelSpeed)
             let nextMotion = Motion(animation: nextMood.travel, stagger: nextMood.stagger)
+                .paced(speed: speed)
+            // The settle covers the travel itself, so it tracks `travelSpeed`
+            // while the dwell either side is tuned independently.
+            let travelTime = nextMood.settle / speed
+
             move(to: nextShape.positions, motion: nextMotion, rolling: nextMood.rolls)
-            guard await pause(nextMood.settle + nextMood.hold) else { return }
+            guard await pause(travelTime + nextMood.hold * Tuning.holdScale + Tuning.holdBonus) else { return }
 
             move(to: Formation.home.positions, motion: nextMotion, rolling: nextMood.rolls)
-            guard await pause(nextMood.settle + nextMood.rest) else { return }
+            guard await pause(travelTime + nextMood.rest * Tuning.restScale + Tuning.restBonus) else { return }
         }
     }
 
     /// Plays a scripted set piece step by step. Returns false if the loop was
     /// cancelled part-way, in which case the view is going away anyway.
     private func perform(_ routine: Routine) async -> Bool {
+        let speed = Tuning.clamped(speed: Tuning.routineSpeed)
+
         for step in routine.steps {
             if let points = step.points {
-                move(to: points, motion: step.motion, rolling: step.rolls)
+                move(to: points, motion: step.motion.paced(speed: speed), rolling: step.rolls)
             }
             if step.spin != nil || step.travel != nil {
-                groupMotion = step.groupAnimation ?? step.motion.animation
+                groupMotion = (step.groupAnimation ?? step.motion.animation).speed(speed)
                 if let spinTo = step.spin { spin = spinTo }
                 if let travelTo = step.travel { travelX = travelTo }
             }
-            guard await pause(step.hold) else { return false }
+            // A step's hold covers its own animation, so it moves with the
+            // speed rather than being tuned separately.
+            guard await pause(step.hold / speed) else { return false }
         }
 
         // Every routine is written to land back at an upright, untranslated
         // group, so clearing the transform here is a no-op on screen.
         spin = 0
         travelX = 0
-        return true
+        return await pause(Tuning.routineRestBonus)
     }
 
     private func move(to points: [CGPoint], motion nextMotion: Motion, rolling: Bool) {
@@ -310,7 +328,7 @@ struct MenuPebbleStage: View {
             for index in 0..<Layout.count {
                 let distance = points[index].x - pose[index].x
                 let radius = Layout.diameters[index] / 2
-                roll[index] += Double(distance / radius) * (180 / .pi) * Layout.rollFactor
+                roll[index] += Double(distance / radius) * (180 / .pi) * Tuning.rollFactor
             }
         }
         // Set the motion first: the pebbles read it when building the animation
@@ -325,10 +343,12 @@ struct MenuPebbleStage: View {
         pose = Formation.home.positions
     }
 
-    /// Returns false when the loop was cancelled mid-sleep.
+    /// Returns false when the loop was cancelled mid-sleep. Tuned-down waits
+    /// can come out negative, which is just "don't wait"—but still a
+    /// cancellation point, so the loop can't spin forever on a dead view.
     private func pause(_ seconds: Double) async -> Bool {
         do {
-            try await Task.sleep(for: .seconds(seconds))
+            try await Task.sleep(for: .seconds(max(seconds, 0)))
             return true
         } catch {
             return false
@@ -344,9 +364,98 @@ extension MenuPebbleStage {
         /// The centre pebble has always been the fat one.
         static let diameters: [CGFloat] = [10, 10, 13, 10, 10]
         static let stageHeight: CGFloat = 54
+    }
+}
+
+// MARK: - Tuning
+
+extension MenuPebbleStage {
+    /// Every knob that governs *when* and *how briskly* the idle loop moves.
+    ///
+    /// These are `var`s rather than `let`s so they can be nudged from a preview
+    /// or a debug build without threading state through the view; nothing in
+    /// the app writes to them at runtime, and they're read on the main actor
+    /// like the rest of the view.
+    ///
+    /// The scale factors all mean the same thing: `1.0` is the hand-tuned
+    /// original, larger is more of whatever the name says. Nothing here changes
+    /// the *shapes*—those live in `Formation` and `Routine`.
+    fileprivate enum Tuning {
+        // MARK: Startup
+
+        /// Dead time after the menu appears before the pebbles first stir.
+        /// Long enough by default for the menu's own fade-in to finish.
+        static var startupDelay: Double = 0.5
+
+        /// Master switch for the idle loop. Off leaves the pebbles in the
+        /// resting row—still pushable, just never self-propelled.
+        static var idleMotionEnabled = true
+
+        // MARK: Cycle pacing
+
+        /// Speed multiplier on a formation's travel animation. Above `1.0` the
+        /// pebbles hurry; the waits that cover the travel shrink to match, so
+        /// this doesn't leave dead air behind.
+        static var travelSpeed: Double = 1.0
+
+        /// Dwell once a formation has landed, before they head home.
+        /// The scale multiplies the mood's own hold; the bonus is added on top,
+        /// so a mood's relative laziness survives either adjustment.
+        static var holdScale: Double = 1.0
+        static var holdBonus: Double = 0
+
+        /// Dwell back at the resting row before the next cycle starts—the gap
+        /// between one animation and the next.
+        static var restScale: Double = 1.0
+        static var restBonus: Double = 0
+
+        /// Multiplier on the per-pebble departure delay that breaks the row
+        /// apart. `0` sends them as one block.
+        static var staggerScale: Double = 1.0
+
         /// Full physical rolling (`1.0`) spins fast enough to blur on long
-        /// hops; this trims it back to something that reads as a roll.
-        static let rollFactor: Double = 0.7
+        /// hops; the default trims it back to something that reads as a roll.
+        static var rollFactor: Double = 0.7
+
+        /// The shapes a plain cycle may draw from, and the moods it performs
+        /// them in. Trim either to bias the loop toward particular ones; an
+        /// empty deck falls back to the full set.
+        static var formationDeck: [Formation] = Formation.roaming
+        static var moodDeck: [Mood] = Mood.all
+
+        // MARK: Routines
+
+        /// Plain cycles to get through before the first routine, and between
+        /// routines thereafter. A fresh count is rolled from the range each
+        /// time, so the set pieces never land on a metronome.
+        static var cyclesBeforeFirstRoutine: ClosedRange<Int> = 2...4
+        static var cyclesBetweenRoutines: ClosedRange<Int> = 2...5
+
+        /// Speed multiplier on a routine's scripted steps. Their holds are
+        /// scaled to match, since a step's hold covers its own animation.
+        static var routineSpeed: Double = 1.0
+
+        /// Extra breath after a routine finishes, on top of its closing step.
+        static var routineRestBonus: Double = 0
+
+        /// Which set pieces are in the deck. Empty disables routines entirely
+        /// and the loop runs nothing but plain cycles.
+        static var routineDeck: [Routine] = Routine.all
+
+        // MARK: Touch
+
+        /// Whether touching the stage shoves the pebbles at all. The force,
+        /// falloff and recoil timings live in `Push`.
+        static var pushEnabled = true
+
+        // MARK: Guards
+
+        /// Speeds are divided into the loop's waits, so a zero or negative one
+        /// would stall it outright rather than slowing it down. Every read of a
+        /// speed goes through here.
+        static func clamped(speed: Double) -> Double {
+            max(speed, 0.05)
+        }
     }
 }
 
@@ -358,6 +467,16 @@ extension MenuPebbleStage {
     fileprivate struct Motion {
         let animation: Animation
         let stagger: Double
+
+        /// Applies the tuning knobs to an authored motion. The stagger is
+        /// divided by the speed as well as scaled, so a hurried cycle breaks
+        /// the row apart in the same proportion as a lazy one instead of
+        /// spending most of its travel time waiting to set off.
+        func paced(speed: Double) -> Motion {
+            guard speed > 0 else { return self }
+            return Motion(animation: animation.speed(speed),
+                          stagger: stagger * Tuning.staggerScale / speed)
+        }
     }
 
     /// One beat of a set piece. `points` moves the pebbles individually;

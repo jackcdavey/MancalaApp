@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <g>
+
+  <defs>
+    <linearGradient id="L0_obsidian" x1="0.12" y1="0" x2="0.88" y2="1">
+      <stop offset="0" stop-color="#23222A"/>
+      <stop offset="0.5" stop-color="#14131A"/>
+      <stop offset="1" stop-color="#08080C"/>
+    </linearGradient>
+    <!-- Volcanic glass takes a broad, soft reflection rather than a hot spot -->
+    <linearGradient id="L0_glassSheen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0.05" stop-color="#9FB4D8" stop-opacity="0.14"/>
+      <stop offset="0.4" stop-color="#9FB4D8" stop-opacity="0"/>
+      <stop offset="0.78" stop-color="#9FB4D8" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#9FB4D8" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#L0_obsidian)"/>
+  <rect width="1024" height="1024" fill="url(#L0_glassSheen)"/>
+
+  </g>
+  <g>
+
+  <!-- The loop every stone travels, drawn as the closed circuit it actually is.
+       The pits in 03 sit exactly on this centreline. -->
+  <rect x="120" y="348" width="784" height="328" rx="164"
+        fill="none" stroke="#6E6A7C" stroke-opacity="0.22" stroke-width="12"/>
+
+  </g>
+  <g>
+
+  <defs>
+    <radialGradient id="L2_glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.3" stop-color="#FF9A3C" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#FF9A3C" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="L2_storeFill" cx="0.36" cy="0.28" r="0.86">
+      <stop offset="0" stop-color="#FFC470"/>
+      <stop offset="0.55" stop-color="#EF6A24"/>
+      <stop offset="1" stop-color="#9C3208"/>
+    </radialGradient>
+    <radialGradient id="L2_oppStore" cx="0.36" cy="0.28" r="0.86">
+      <stop offset="0" stop-color="#3C5C82"/>
+      <stop offset="0.55" stop-color="#24405E"/>
+      <stop offset="1" stop-color="#12233A"/>
+    </radialGradient>
+  </defs>
+
+  <!-- The player's store glows: it is the destination, not just another well -->
+  <ellipse cx="904" cy="512" rx="150" ry="190" fill="url(#L2_glow)"/>
+
+  <!-- Your row, warming toward your store. Heat encodes the direction of
+       travel, so the icon states the rule rather than illustrating a position. -->
+  <g>
+    <circle cx="284" cy="676" r="40" fill="#2C6E9E"/>
+    <circle cx="375" cy="676" r="40" fill="#2E8A96"/>
+    <circle cx="466" cy="676" r="40" fill="#3AA084"/>
+    <circle cx="557" cy="676" r="40" fill="#6FB05C"/>
+    <circle cx="649" cy="676" r="40" fill="#B4B03C"/>
+    <circle cx="740" cy="676" r="40" fill="#E59A2C"/>
+  </g>
+
+  <!-- Opponent's row, cooling back down and away -->
+  <g>
+    <circle cx="740" cy="348" r="40" fill="#D8593A"/>
+    <circle cx="649" cy="348" r="40" fill="#B04A5E"/>
+    <circle cx="557" cy="348" r="40" fill="#7A4472"/>
+    <circle cx="466" cy="348" r="40" fill="#4E4079"/>
+    <circle cx="375" cy="348" r="40" fill="#34467F"/>
+    <circle cx="284" cy="348" r="40" fill="#2A5490"/>
+  </g>
+
+  <!-- The two stores, sized above the pits because they are where it ends -->
+  <ellipse cx="120" cy="512" rx="54" ry="112" fill="url(#L2_oppStore)"/>
+  <ellipse cx="904" cy="512" rx="58" ry="120" fill="url(#L2_storeFill)"/>
+
+  </g>
+  <g>
+
+  <defs>
+    <radialGradient id="L3_vignette" cx="0.5" cy="0.5" r="0.74">
+      <stop offset="0.52" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.44"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#L3_vignette)"/>
+
+  </g>
+</svg>

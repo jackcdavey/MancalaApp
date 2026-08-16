@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="trail" x1="0.95" y1="0" x2="0.05" y2="1">
+      <stop offset="0" stop-color="#E9C489" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#E9C489" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#FFD79B" stop-opacity="0.45"/>
+    </linearGradient>
+  </defs>
+  <!-- The arc of the sow, counter-clockwise into the store -->
+  <path d="M 856 172 C 828 400, 760 580, 600 668"
+        fill="none" stroke="url(#trail)" stroke-width="20" stroke-linecap="round"/>
+</svg>

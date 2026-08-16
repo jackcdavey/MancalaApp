@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <g>
+
+  <defs>
+    <linearGradient id="L0_night" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#221913"/>
+      <stop offset="0.5" stop-color="#140D09"/>
+      <stop offset="1" stop-color="#080505"/>
+    </linearGradient>
+    <radialGradient id="L0_hearth" cx="0.56" cy="0.74" r="0.62">
+      <stop offset="0" stop-color="#FFB65C" stop-opacity="0.3"/>
+      <stop offset="0.55" stop-color="#C4691F" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#C4691F" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#L0_night)"/>
+  <rect width="1024" height="1024" fill="url(#L0_hearth)"/>
+
+  </g>
+  <g>
+
+  <defs>
+    <radialGradient id="L1_hollow" cx="0.4" cy="0.24" r="0.9">
+      <stop offset="0" stop-color="#120C08"/>
+      <stop offset="0.55" stop-color="#251811"/>
+      <stop offset="1" stop-color="#5E3B1E"/>
+    </radialGradient>
+    <linearGradient id="L1_brassRim" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#120C07" stop-opacity="0.95"/>
+      <stop offset="0.4" stop-color="#7A5B26" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FFDDA0" stop-opacity="0.95"/>
+    </linearGradient>
+  </defs>
+  <!-- The store: where every sow is heading -->
+  <rect x="170" y="612" width="580" height="310" rx="155" fill="url(#L1_hollow)"
+        stroke="url(#L1_brassRim)" stroke-width="18"/>
+
+  </g>
+  <g>
+
+  <defs>
+    <linearGradient id="L2_trail" x1="0.95" y1="0" x2="0.05" y2="1">
+      <stop offset="0" stop-color="#E9C489" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#E9C489" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#FFD79B" stop-opacity="0.45"/>
+    </linearGradient>
+  </defs>
+  <!-- The arc of the sow, counter-clockwise into the store -->
+  <path d="M 856 172 C 828 400, 760 580, 600 668"
+        fill="none" stroke="url(#L2_trail)" stroke-width="20" stroke-linecap="round"/>
+
+  </g>
+  <g>
+
+  <defs>
+    <radialGradient id="L3_sBlue" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#8FB6FF"/><stop offset="0.55" stop-color="#216BEB"/><stop offset="1" stop-color="#123C86"/>
+    </radialGradient>
+    <radialGradient id="L3_sOrange" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#FFD49B"/><stop offset="0.55" stop-color="#F28C29"/><stop offset="1" stop-color="#9E4C0E"/>
+    </radialGradient>
+    <radialGradient id="L3_sTeal" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#84E0D0"/><stop offset="0.55" stop-color="#249E8F"/><stop offset="1" stop-color="#0D544D"/>
+    </radialGradient>
+    <radialGradient id="L3_sCrimson" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#F79AA9"/><stop offset="0.55" stop-color="#D63857"/><stop offset="1" stop-color="#7F172E"/>
+    </radialGradient>
+    <radialGradient id="L3_sViolet" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#CBB4F8"/><stop offset="0.55" stop-color="#8C6BDB"/><stop offset="1" stop-color="#4E358C"/>
+    </radialGradient>
+    <radialGradient id="L3_spec" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="L3_contact" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.3" stop-color="#000000" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Already sown, resting in the store -->
+  <g fill="url(#L3_contact)">
+    <ellipse cx="302" cy="798" rx="74" ry="44"/>
+    <ellipse cx="426" cy="830" rx="64" ry="38"/>
+  </g>
+  <circle cx="300" cy="780" r="62" fill="url(#L3_sTeal)"/><circle cx="278" cy="758" r="22" fill="url(#L3_spec)"/>
+  <circle cx="424" cy="812" r="52" fill="url(#L3_sViolet)"/><circle cx="406" cy="794" r="18" fill="url(#L3_spec)"/>
+
+  <!-- In flight: smaller and dimmer the further back along the arc -->
+  <circle cx="856" cy="172" r="26" fill="url(#L3_sViolet)" opacity="0.5"/>
+  <circle cx="832" cy="306" r="34" fill="url(#L3_sBlue)" opacity="0.72"/><circle cx="820" cy="294" r="12" fill="url(#L3_spec)" opacity="0.6"/>
+  <circle cx="778" cy="452" r="44" fill="url(#L3_sTeal)" opacity="0.88"/><circle cx="762" cy="436" r="16" fill="url(#L3_spec)" opacity="0.8"/>
+  <circle cx="700" cy="566" r="54" fill="url(#L3_sCrimson)"/><circle cx="681" cy="547" r="19" fill="url(#L3_spec)"/>
+  <circle cx="596" cy="660" r="64" fill="url(#L3_sOrange)"/><circle cx="573" cy="637" r="23" fill="url(#L3_spec)"/>
+
+  </g>
+  <g>
+
+  <defs>
+    <radialGradient id="L4_vignette" cx="0.5" cy="0.5" r="0.74">
+      <stop offset="0.5" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.42"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#L4_vignette)"/>
+
+  </g>
+</svg>

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="sBlue" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#7FA9FF"/><stop offset="0.55" stop-color="#216BEB"/><stop offset="1" stop-color="#123C86"/>
+    </radialGradient>
+    <radialGradient id="sOrange" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#FFCB8B"/><stop offset="0.55" stop-color="#F28C29"/><stop offset="1" stop-color="#9E4C0E"/>
+    </radialGradient>
+    <radialGradient id="sTeal" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#75D8C7"/><stop offset="0.55" stop-color="#249E8F"/><stop offset="1" stop-color="#0D544D"/>
+    </radialGradient>
+    <radialGradient id="sCrimson" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#F58A9B"/><stop offset="0.55" stop-color="#D63857"/><stop offset="1" stop-color="#7F172E"/>
+    </radialGradient>
+    <radialGradient id="sViolet" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#C3AAF5"/><stop offset="0.55" stop-color="#8C6BDB"/><stop offset="1" stop-color="#4E358C"/>
+    </radialGradient>
+    <radialGradient id="spec" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="contact" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.3" stop-color="#0B0603" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#0B0603" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <g transform="translate(0 -20) rotate(-9 512 512)">
+    <g fill="url(#contact)">
+      <ellipse cx="96" cy="418" rx="46" ry="30"/><ellipse cx="112" cy="500" rx="46" ry="30"/>
+      <ellipse cx="92" cy="582" rx="46" ry="30"/><ellipse cx="114" cy="660" rx="46" ry="30"/>
+      <ellipse cx="326" cy="408" rx="42" ry="27"/>
+      <ellipse cx="490" cy="384" rx="40" ry="26"/><ellipse cx="524" cy="414" rx="40" ry="26"/>
+      <ellipse cx="672" cy="618" rx="40" ry="26"/><ellipse cx="702" cy="648" rx="40" ry="26"/>
+      <ellipse cx="866" cy="640" rx="42" ry="27"/>
+      <ellipse cx="506" cy="640" rx="42" ry="27"/>
+    </g>
+
+    <!-- Store -->
+    <circle cx="96" cy="406" r="40" fill="url(#sCrimson)"/><circle cx="83" cy="393" r="14" fill="url(#spec)"/>
+    <circle cx="112" cy="488" r="40" fill="url(#sBlue)"/><circle cx="99" cy="475" r="14" fill="url(#spec)"/>
+    <circle cx="92" cy="570" r="40" fill="url(#sOrange)"/><circle cx="79" cy="557" r="14" fill="url(#spec)"/>
+    <circle cx="114" cy="648" r="40" fill="url(#sTeal)"/><circle cx="101" cy="635" r="14" fill="url(#spec)"/>
+
+    <!-- Pits -->
+    <circle cx="326" cy="396" r="38" fill="url(#sViolet)"/><circle cx="313" cy="383" r="13" fill="url(#spec)"/>
+    <circle cx="490" cy="372" r="36" fill="url(#sOrange)"/><circle cx="478" cy="360" r="13" fill="url(#spec)"/>
+    <circle cx="524" cy="402" r="36" fill="url(#sTeal)"/><circle cx="512" cy="390" r="13" fill="url(#spec)"/>
+    <circle cx="672" cy="606" r="36" fill="url(#sBlue)"/><circle cx="660" cy="594" r="13" fill="url(#spec)"/>
+    <circle cx="702" cy="636" r="36" fill="url(#sCrimson)"/><circle cx="690" cy="624" r="13" fill="url(#spec)"/>
+    <circle cx="866" cy="628" r="38" fill="url(#sOrange)"/><circle cx="853" cy="615" r="13" fill="url(#spec)"/>
+    <circle cx="506" cy="628" r="38" fill="url(#sCrimson)"/><circle cx="493" cy="615" r="13" fill="url(#spec)"/>
+  </g>
+</svg>

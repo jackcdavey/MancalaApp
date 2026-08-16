@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <g>
+
+  <defs>
+    <linearGradient id="L0_clay" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#D4855C"/>
+      <stop offset="0.45" stop-color="#B96A44"/>
+      <stop offset="1" stop-color="#8E4B2C"/>
+    </linearGradient>
+    <radialGradient id="L0_daylight" cx="0.26" cy="0.14" r="0.72">
+      <stop offset="0" stop-color="#FFE7CE" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#FFE7CE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#L0_clay)"/>
+  <rect width="1024" height="1024" fill="url(#L0_daylight)"/>
+
+  <!-- Unglazed clay is porous, not smooth: a fine speckle keeps it from
+       reading as flat plastic at large sizes. -->
+  <g fill="#5F2F19" fill-opacity="0.13">
+    <circle cx="118" cy="176" r="7"/><circle cx="286" cy="92" r="5"/><circle cx="452" cy="214" r="8"/>
+    <circle cx="640" cy="118" r="6"/><circle cx="836" cy="206" r="7"/><circle cx="948" cy="84" r="5"/>
+    <circle cx="72" cy="424" r="6"/><circle cx="196" cy="596" r="8"/><circle cx="908" cy="472" r="7"/>
+    <circle cx="962" cy="648" r="6"/><circle cx="146" cy="884" r="7"/><circle cx="380" cy="962" r="5"/>
+    <circle cx="612" cy="906" r="8"/><circle cx="828" cy="978" r="6"/><circle cx="512" cy="118" r="5"/>
+  </g>
+  <g fill="#FFE0C4" fill-opacity="0.16">
+    <circle cx="214" cy="298" r="6"/><circle cx="548" cy="86" r="5"/><circle cx="760" cy="266" r="7"/>
+    <circle cx="96" cy="702" r="6"/><circle cx="884" cy="812" r="5"/><circle cx="418" cy="938" r="6"/>
+  </g>
+
+  </g>
+  <g>
+
+  <defs>
+    <!-- The pit is cropped by the canvas on three sides: this is one well seen
+         close enough that the board around it is out of frame entirely. -->
+    <radialGradient id="L1_hollow" cx="0.38" cy="0.26" r="0.9">
+      <stop offset="0" stop-color="#3E1E10"/>
+      <stop offset="0.5" stop-color="#5A2E19"/>
+      <stop offset="1" stop-color="#96522F"/>
+    </radialGradient>
+    <linearGradient id="L1_pitRim" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#5A2A15" stop-opacity="0.7"/>
+      <stop offset="0.42" stop-color="#5A2A15" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#FFD9B4" stop-opacity="0.85"/>
+    </linearGradient>
+  </defs>
+  <circle cx="512" cy="596" r="470" fill="url(#L1_hollow)" stroke="url(#L1_pitRim)" stroke-width="30"/>
+
+  </g>
+  <g>
+
+  <defs>
+    <!-- At this size a gem is mostly its own body colour with a small hard
+         highlight. A wide soft highlight reads as a balloon, not as glass. -->
+    <radialGradient id="L2_sBlue" cx="0.36" cy="0.3" r="0.78">
+      <stop offset="0" stop-color="#4B87F5"/><stop offset="0.5" stop-color="#1F5FD8"/><stop offset="1" stop-color="#0B2E6E"/>
+    </radialGradient>
+    <radialGradient id="L2_sTeal" cx="0.36" cy="0.3" r="0.78">
+      <stop offset="0" stop-color="#3FC3AE"/><stop offset="0.5" stop-color="#1D9184"/><stop offset="1" stop-color="#07423C"/>
+    </radialGradient>
+    <radialGradient id="L2_sCrimson" cx="0.36" cy="0.3" r="0.78">
+      <stop offset="0" stop-color="#EE5F7C"/><stop offset="0.5" stop-color="#CC2E4E"/><stop offset="1" stop-color="#640F24"/>
+    </radialGradient>
+    <radialGradient id="L2_spec" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="0.42" stop-color="#FFFFFF" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="L2_contact" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.25" stop-color="#2A1108" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#2A1108" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Warm light bouncing off the clay and back up under each gem. Bottom
+         weighted, or it washes the body colour out into pastel. -->
+    <radialGradient id="L2_bounce" cx="0.5" cy="0.82" r="0.44">
+      <stop offset="0" stop-color="#FF9A55" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#FF9A55" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Dark terminator around the lower edge, which is what gives a sphere
+         its roundness once the highlight is small. -->
+    <radialGradient id="L2_terminator" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.72" stop-color="#180A04" stop-opacity="0"/>
+      <stop offset="1" stop-color="#180A04" stop-opacity="0.5"/>
+    </radialGradient>
+  </defs>
+
+  <g fill="url(#L2_contact)">
+    <ellipse cx="360" cy="706" rx="205" ry="112"/>
+    <ellipse cx="690" cy="676" rx="176" ry="96"/>
+    <ellipse cx="528" cy="492" rx="172" ry="94"/>
+  </g>
+
+  <!-- Three gems, big enough that the icon is really about the material -->
+  <g>
+    <circle cx="352" cy="640" r="188" fill="url(#L2_sBlue)"/>
+    <circle cx="352" cy="640" r="188" fill="url(#L2_bounce)"/>
+    <circle cx="352" cy="640" r="188" fill="url(#L2_terminator)"/>
+    <circle cx="286" cy="574" r="40" fill="url(#L2_spec)"/>
+    <circle cx="262" cy="550" r="15" fill="#FFFFFF" fill-opacity="0.85"/>
+  </g>
+
+  <g>
+    <circle cx="686" cy="616" r="162" fill="url(#L2_sCrimson)"/>
+    <circle cx="686" cy="616" r="162" fill="url(#L2_bounce)"/>
+    <circle cx="686" cy="616" r="162" fill="url(#L2_terminator)"/>
+    <circle cx="629" cy="559" r="35" fill="url(#L2_spec)"/>
+    <circle cx="609" cy="539" r="13" fill="#FFFFFF" fill-opacity="0.85"/>
+  </g>
+
+  <g>
+    <circle cx="524" cy="426" r="140" fill="url(#L2_sTeal)"/>
+    <circle cx="524" cy="426" r="140" fill="url(#L2_bounce)"/>
+    <circle cx="524" cy="426" r="140" fill="url(#L2_terminator)"/>
+    <circle cx="475" cy="377" r="30" fill="url(#L2_spec)"/>
+    <circle cx="458" cy="360" r="11" fill="#FFFFFF" fill-opacity="0.85"/>
+  </g>
+
+  </g>
+  <g>
+
+  <defs>
+    <linearGradient id="L3_sheen" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#FFF0DC" stop-opacity="0.2"/>
+      <stop offset="0.42" stop-color="#FFF0DC" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="L3_vignette" cx="0.5" cy="0.48" r="0.74">
+      <stop offset="0.5" stop-color="#3A1808" stop-opacity="0"/>
+      <stop offset="1" stop-color="#3A1808" stop-opacity="0.34"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#L3_sheen)"/>
+  <rect width="1024" height="1024" fill="url(#L3_vignette)"/>
+
+  </g>
+</svg>

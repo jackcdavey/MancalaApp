@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <g>
+
+  <defs>
+    <linearGradient id="L0_ground" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#3A2517"/>
+      <stop offset="0.55" stop-color="#241509"/>
+      <stop offset="1" stop-color="#120B05"/>
+    </linearGradient>
+    <radialGradient id="L0_lamp" cx="0.28" cy="0.18" r="0.7">
+      <stop offset="0" stop-color="#FFD9A0" stop-opacity="0.46"/>
+      <stop offset="1" stop-color="#FFD9A0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#L0_ground)"/>
+  <rect width="1024" height="1024" fill="url(#L0_lamp)"/>
+
+  </g>
+  <g>
+
+  <defs>
+    <linearGradient id="L1_walnut" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#9A663A"/>
+      <stop offset="0.42" stop-color="#79492A"/>
+      <stop offset="1" stop-color="#55311A"/>
+    </linearGradient>
+    <linearGradient id="L1_edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2E1A0D"/>
+      <stop offset="1" stop-color="#170D06"/>
+    </linearGradient>
+    <clipPath id="L1_slabClip">
+      <rect x="-150" y="268" width="1324" height="488" rx="244"/>
+    </clipPath>
+  </defs>
+
+  <!-- Tilted so the board reads as an object on a table, not a diagram -->
+  <g transform="translate(0 -20) rotate(-9 512 512)">
+    <!-- Slab thickness -->
+    <rect x="-150" y="292" width="1324" height="488" rx="244" fill="url(#L1_edge)"/>
+    <rect x="-150" y="268" width="1324" height="488" rx="244" fill="url(#L1_walnut)"/>
+
+    <!-- Open grain -->
+    <g clip-path="url(#L1_slabClip)" fill="none" stroke="#2A1810" stroke-linecap="round">
+      <path d="M-150 340 C 120 320, 420 366, 700 336 S 1080 356, 1174 336" stroke-opacity="0.22" stroke-width="7"/>
+      <path d="M-150 402 C 160 384, 460 424, 760 398 S 1090 414, 1174 398" stroke-opacity="0.14" stroke-width="5"/>
+      <path d="M-150 486 C 200 470, 480 508, 780 480 S 1100 496, 1174 480" stroke-opacity="0.2" stroke-width="9"/>
+      <path d="M-150 556 C 180 542, 470 578, 770 552 S 1100 566, 1174 552" stroke-opacity="0.13" stroke-width="5"/>
+      <path d="M-150 640 C 150 626, 450 664, 760 638 S 1090 652, 1174 638" stroke-opacity="0.2" stroke-width="8"/>
+      <path d="M-150 706 C 190 692, 500 726, 800 700 S 1110 714, 1174 700" stroke-opacity="0.12" stroke-width="5"/>
+    </g>
+
+    <!-- Chamfer catching the lamp -->
+    <rect x="-150" y="268" width="1324" height="488" rx="244"
+          fill="none" stroke="#D6A063" stroke-opacity="0.3" stroke-width="8"/>
+  </g>
+
+  </g>
+  <g>
+
+  <defs>
+    <radialGradient id="L2_hollow" cx="0.36" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#150D06"/>
+      <stop offset="0.55" stop-color="#2B1A0E"/>
+      <stop offset="1" stop-color="#5A3419"/>
+    </radialGradient>
+    <linearGradient id="L2_wellRim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#120A04" stop-opacity="0.85"/>
+      <stop offset="0.5" stop-color="#120A04" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#E7B276" stop-opacity="0.75"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(0 -20) rotate(-9 512 512)">
+    <!-- Store, cropped by the left edge -->
+    <rect x="16" y="330" width="172" height="364" rx="86" fill="url(#L2_hollow)" stroke="url(#L2_wellRim)" stroke-width="12"/>
+
+    <!-- Pits marching off the right edge -->
+    <g fill="url(#L2_hollow)" stroke="url(#L2_wellRim)" stroke-width="12">
+      <circle cx="326" cy="396" r="76"/>
+      <circle cx="506" cy="396" r="76"/>
+      <circle cx="686" cy="396" r="76"/>
+      <circle cx="866" cy="396" r="76"/>
+      <circle cx="326" cy="628" r="76"/>
+      <circle cx="506" cy="628" r="76"/>
+      <circle cx="686" cy="628" r="76"/>
+      <circle cx="866" cy="628" r="76"/>
+    </g>
+  </g>
+
+  </g>
+  <g>
+
+  <defs>
+    <radialGradient id="L3_sBlue" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#7FA9FF"/><stop offset="0.55" stop-color="#216BEB"/><stop offset="1" stop-color="#123C86"/>
+    </radialGradient>
+    <radialGradient id="L3_sOrange" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#FFCB8B"/><stop offset="0.55" stop-color="#F28C29"/><stop offset="1" stop-color="#9E4C0E"/>
+    </radialGradient>
+    <radialGradient id="L3_sTeal" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#75D8C7"/><stop offset="0.55" stop-color="#249E8F"/><stop offset="1" stop-color="#0D544D"/>
+    </radialGradient>
+    <radialGradient id="L3_sCrimson" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#F58A9B"/><stop offset="0.55" stop-color="#D63857"/><stop offset="1" stop-color="#7F172E"/>
+    </radialGradient>
+    <radialGradient id="L3_sViolet" cx="0.34" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#C3AAF5"/><stop offset="0.55" stop-color="#8C6BDB"/><stop offset="1" stop-color="#4E358C"/>
+    </radialGradient>
+    <radialGradient id="L3_spec" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="L3_contact" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.3" stop-color="#0B0603" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#0B0603" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <g transform="translate(0 -20) rotate(-9 512 512)">
+    <g fill="url(#L3_contact)">
+      <ellipse cx="96" cy="418" rx="46" ry="30"/><ellipse cx="112" cy="500" rx="46" ry="30"/>
+      <ellipse cx="92" cy="582" rx="46" ry="30"/><ellipse cx="114" cy="660" rx="46" ry="30"/>
+      <ellipse cx="326" cy="408" rx="42" ry="27"/>
+      <ellipse cx="490" cy="384" rx="40" ry="26"/><ellipse cx="524" cy="414" rx="40" ry="26"/>
+      <ellipse cx="672" cy="618" rx="40" ry="26"/><ellipse cx="702" cy="648" rx="40" ry="26"/>
+      <ellipse cx="866" cy="640" rx="42" ry="27"/>
+      <ellipse cx="506" cy="640" rx="42" ry="27"/>
+    </g>
+
+    <!-- Store -->
+    <circle cx="96" cy="406" r="40" fill="url(#L3_sCrimson)"/><circle cx="83" cy="393" r="14" fill="url(#L3_spec)"/>
+    <circle cx="112" cy="488" r="40" fill="url(#L3_sBlue)"/><circle cx="99" cy="475" r="14" fill="url(#L3_spec)"/>
+    <circle cx="92" cy="570" r="40" fill="url(#L3_sOrange)"/><circle cx="79" cy="557" r="14" fill="url(#L3_spec)"/>
+    <circle cx="114" cy="648" r="40" fill="url(#L3_sTeal)"/><circle cx="101" cy="635" r="14" fill="url(#L3_spec)"/>
+
+    <!-- Pits -->
+    <circle cx="326" cy="396" r="38" fill="url(#L3_sViolet)"/><circle cx="313" cy="383" r="13" fill="url(#L3_spec)"/>
+    <circle cx="490" cy="372" r="36" fill="url(#L3_sOrange)"/><circle cx="478" cy="360" r="13" fill="url(#L3_spec)"/>
+    <circle cx="524" cy="402" r="36" fill="url(#L3_sTeal)"/><circle cx="512" cy="390" r="13" fill="url(#L3_spec)"/>
+    <circle cx="672" cy="606" r="36" fill="url(#L3_sBlue)"/><circle cx="660" cy="594" r="13" fill="url(#L3_spec)"/>
+    <circle cx="702" cy="636" r="36" fill="url(#L3_sCrimson)"/><circle cx="690" cy="624" r="13" fill="url(#L3_spec)"/>
+    <circle cx="866" cy="628" r="38" fill="url(#L3_sOrange)"/><circle cx="853" cy="615" r="13" fill="url(#L3_spec)"/>
+    <circle cx="506" cy="628" r="38" fill="url(#L3_sCrimson)"/><circle cx="493" cy="615" r="13" fill="url(#L3_spec)"/>
+  </g>
+
+  </g>
+  <g>
+
+  <defs>
+    <linearGradient id="L4_sheen" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#FFE6C2" stop-opacity="0.22"/>
+      <stop offset="0.45" stop-color="#FFE6C2" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="L4_vignette" cx="0.5" cy="0.5" r="0.72">
+      <stop offset="0.5" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.4"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#L4_sheen)"/>
+  <rect width="1024" height="1024" fill="url(#L4_vignette)"/>
+
+  </g>
+</svg>

@@ -1927,273 +1927,36 @@ struct ContentView: View {
         }
     }
 
+    /// Whether the settings sheet is speaking for a game in progress.
+    ///
+    /// Opened from the main menu there is no chosen mode: `gameMode` still
+    /// holds whichever mode was played last, so its sections read as settings
+    /// for a mode the player hasn't picked (two difficulty pickers after a
+    /// 0 Player game). The menu's Settings therefore shows only what applies
+    /// to every mode; per-mode settings live in that mode's own Settings.
+    private var showsModeSpecificSettings: Bool {
+        !isMainMenuPresented
+    }
+
     private var settingsSheet: some View {
         NavigationStack {
             Form {
-                if gameMode == .singlePlayer {
-                    Section("Difficulty") {
-                        Picker("Skill", selection: $difficulty) {
-                            ForEach(AIDifficulty.allCases) { difficulty in
-                                Text(difficulty.title).tag(difficulty)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: difficulty) { _, _ in
-                            restartAIThinkingForUpdatedSettingsIfNeeded()
-                        }
-
-                        Text(difficulty.description)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-
-                        if let modelAvailabilityMessage {
-                            Text(modelAvailabilityMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } else if gameMode == .zeroPlayer {
-                    Section("Player 1 Difficulty") {
-                        Picker("Player 1 Skill", selection: $zeroPlayerOneDifficulty) {
-                            ForEach(AIDifficulty.allCases) { difficulty in
-                                Text(difficulty.title).tag(difficulty)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: zeroPlayerOneDifficulty) { _, _ in
-                            restartAIThinkingForUpdatedSettingsIfNeeded()
-                        }
-
-                        Text(zeroPlayerOneDifficulty.description)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Section("Player 2 Difficulty") {
-                        Picker("Player 2 Skill", selection: $zeroPlayerTwoDifficulty) {
-                            ForEach(AIDifficulty.allCases) { difficulty in
-                                Text(difficulty.title).tag(difficulty)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: zeroPlayerTwoDifficulty) { _, _ in
-                            restartAIThinkingForUpdatedSettingsIfNeeded()
-                        }
-
-                        Text(zeroPlayerTwoDifficulty.description)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-
-                        if let modelAvailabilityMessage {
-                            Text(modelAvailabilityMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                if showsModeSpecificSettings {
+                    difficultySettingsSections
                 }
 
-                Section("Appearance") {
-                    Picker("Theme", selection: $visualTheme) {
-                        ForEach(VisualTheme.allCases) { theme in
-                            Text(theme.title).tag(theme)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                appearanceSettingsSection
 
-                    Text(visualTheme == .flat ? "Soft and minimal — pits pressed right into the page, no board." : "A 3D board with several textures to choose from.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    if visualTheme == .liquidGlass {
-                        #if !os(visionOS)
-                        Toggle("Motion Parallax", isOn: $gyroMotionEnabled)
-
-                        Text("Tilts the board's perspective with your device's motion.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        #endif
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Pebble Speed")
-                            Spacer()
-                            Text(String(format: "%.1f×", stoneAnimationSpeed))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                        Slider(value: $stoneAnimationSpeed, in: 0.5...2.0, step: 0.1) {
-                            Text("Pebble Speed")
-                        } minimumValueLabel: {
-                            Image(systemName: "tortoise")
-                        } maximumValueLabel: {
-                            Image(systemName: "hare")
-                        }
-                    }
-
-                    Text("How quickly pebbles fly between pits.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                if showsModeSpecificSettings {
+                    nameSettingsSection
+                    twoPlayerSettingsSections
                 }
 
-                Section("Names") {
-                    TextField("Player 1", text: currentPlayerOneNameBinding)
-                        .mancalaNameTextFieldStyle()
+                gameCenterSettingsSection
 
-                    TextField("Player 2", text: currentPlayerTwoNameBinding)
-                        .mancalaNameTextFieldStyle()
-
-                    Text("Leave a field blank to use its default name.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                if gameMode == .twoPlayer {
-                    Section("Table") {
-                        Toggle("Flip Screen Each Turn", isOn: $flipScreenForTwoPlayerTurns)
-
-                        Text("Buttons and labels rotate to face the current player while the board layout stays in place.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Section("Display") {
-                        Toggle("Show Numbers", isOn: $twoPlayerShowNumberLabels)
-
-                        Text("Shows the stone counts in each pit and store.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Section("Undo") {
-                        Toggle("Show Undo Button", isOn: $isTwoPlayerUndoButtonEnabled)
-                            .onChange(of: isTwoPlayerUndoButtonEnabled) { _, newValue in
-                                if !newValue {
-                                    undoHistory.removeAll()
-                                }
-                            }
-
-                        Text("Undo rolls back the last completed move.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Section("Game Center") {
-                    Text(onlineManager.statusMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    Button(onlineManager.isAuthenticated ? "View Achievements" : "Sign In to Game Center") {
-                        if onlineManager.isAuthenticated {
-                            onlineManager.showAchievements()
-                        } else {
-                            onlineManager.authenticateLocalPlayer()
-                        }
-                    }
-
-                    if gameMode == .onlineMultiplayer {
-                        Button(onlineManager.isAuthenticated ? "Start Online Match" : "Sign In to Game Center") {
-                            if onlineManager.isAuthenticated {
-                                onlineManager.startMatch()
-                            } else {
-                                onlineManager.authenticateLocalPlayer()
-                            }
-                        }
-                        .disabled(onlineManager.isAuthenticated && !onlineManager.canStartMatch)
-
-                        if onlineManager.currentMatchID != nil {
-                            Button("Forfeit Online Match", role: .destructive) {
-                                onlineManager.forfeitCurrentMatch()
-                            }
-                        }
-                    }
-                }
-
-                if gameMode == .onlineMultiplayer {
-                    Section("Display") {
-                        Toggle("Show Numbers", isOn: $onlineShowNumberLabels)
-
-                        Text("Shows the stone counts in each pit and store.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if gameMode == .singlePlayer || gameMode == .zeroPlayer {
-                    Section("First Move") {
-                        Picker("Starts", selection: $startingPlayer) {
-                            ForEach(StartingPlayer.allCases) { startingPlayer in
-                                Text(startingPlayerTitle(for: startingPlayer)).tag(startingPlayer)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: startingPlayer) { _, _ in
-                            resetForSettingsChange()
-                        }
-
-                        Text(startingPlayerDescription)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Section("Display") {
-                        Toggle(
-                            "Show Numbers",
-                            isOn: gameMode == .singlePlayer ? $singlePlayerShowNumberLabels : $zeroPlayerShowNumberLabels
-                        )
-
-                        Text("Shows the stone counts in each pit and store.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if gameMode == .singlePlayer {
-                        Section("Undo") {
-                            Toggle("Show Undo Button", isOn: $isSinglePlayerUndoButtonEnabled)
-                                .onChange(of: isSinglePlayerUndoButtonEnabled) { _, newValue in
-                                    if !newValue {
-                                        undoHistory.removeAll()
-                                    }
-                                }
-
-                            Text("Undo cancels AI thinking and rolls back the last player move, or rolls back the last player move plus the AI response.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    if shouldShowImpossibleSearchSettings {
-                        Section("Advanced") {
-                            DisclosureGroup("Impossible Search") {
-                                Picker("Limit by", selection: $impossibleSearchLimitMode) {
-                                    ForEach(ImpossibleSearchLimitMode.allCases) { mode in
-                                        Text(mode.title).tag(mode)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
-                                .onChange(of: impossibleSearchLimitMode) { _, _ in
-                                    restartAIThinkingForUpdatedSettingsIfNeeded()
-                                }
-
-                                if impossibleSearchLimitMode == .positions {
-                                    impossiblePositionsLimitStepper
-                                } else {
-                                    impossibleTimeLimitStepper
-                                }
-
-                                Text(impossibleSearchLimitMode.description)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .onChange(of: impossibleSearchLimit) { _, _ in
-                                restartAIThinkingForUpdatedSettingsIfNeeded()
-                            }
-                            .onChange(of: impossibleSearchTimeLimit) { _, _ in
-                                restartAIThinkingForUpdatedSettingsIfNeeded()
-                            }
-                        }
-                    }
+                if showsModeSpecificSettings {
+                    onlineSettingsSections
+                    computerOpponentSettingsSections
                 }
             }
             .navigationTitle("Settings")
@@ -2209,6 +1972,292 @@ struct ContentView: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    @ViewBuilder
+    private var difficultySettingsSections: some View {
+        if gameMode == .singlePlayer {
+            Section("Difficulty") {
+                Picker("Skill", selection: $difficulty) {
+                    ForEach(AIDifficulty.allCases) { difficulty in
+                        Text(difficulty.title).tag(difficulty)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: difficulty) { _, _ in
+                    restartAIThinkingForUpdatedSettingsIfNeeded()
+                }
+
+                Text(difficulty.description)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                if let modelAvailabilityMessage {
+                    Text(modelAvailabilityMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } else if gameMode == .zeroPlayer {
+            Section("Player 1 Difficulty") {
+                Picker("Player 1 Skill", selection: $zeroPlayerOneDifficulty) {
+                    ForEach(AIDifficulty.allCases) { difficulty in
+                        Text(difficulty.title).tag(difficulty)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: zeroPlayerOneDifficulty) { _, _ in
+                    restartAIThinkingForUpdatedSettingsIfNeeded()
+                }
+
+                Text(zeroPlayerOneDifficulty.description)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Player 2 Difficulty") {
+                Picker("Player 2 Skill", selection: $zeroPlayerTwoDifficulty) {
+                    ForEach(AIDifficulty.allCases) { difficulty in
+                        Text(difficulty.title).tag(difficulty)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: zeroPlayerTwoDifficulty) { _, _ in
+                    restartAIThinkingForUpdatedSettingsIfNeeded()
+                }
+
+                Text(zeroPlayerTwoDifficulty.description)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                if let modelAvailabilityMessage {
+                    Text(modelAvailabilityMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var appearanceSettingsSection: some View {
+        Section("Appearance") {
+            Picker("Theme", selection: $visualTheme) {
+                ForEach(VisualTheme.allCases) { theme in
+                    Text(theme.title).tag(theme)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(visualTheme == .flat ? "Soft and minimal — pits pressed right into the page, no board." : "A 3D board with several textures to choose from.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            if visualTheme == .liquidGlass {
+                #if !os(visionOS)
+                Toggle("Motion Parallax", isOn: $gyroMotionEnabled)
+
+                Text("Tilts the board's perspective with your device's motion.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                #endif
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Pebble Speed")
+                    Spacer()
+                    Text(String(format: "%.1f×", stoneAnimationSpeed))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $stoneAnimationSpeed, in: 0.5...2.0, step: 0.1) {
+                    Text("Pebble Speed")
+                } minimumValueLabel: {
+                    Image(systemName: "tortoise")
+                } maximumValueLabel: {
+                    Image(systemName: "hare")
+                }
+            }
+
+            Text("How quickly pebbles fly between pits.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Names are stored per mode, so this belongs with the rest of the
+    /// mode-specific settings rather than on the menu's global sheet.
+    private var nameSettingsSection: some View {
+        Section("Names") {
+            TextField("Player 1", text: currentPlayerOneNameBinding)
+                .mancalaNameTextFieldStyle()
+
+            TextField("Player 2", text: currentPlayerTwoNameBinding)
+                .mancalaNameTextFieldStyle()
+
+            Text("Leave a field blank to use its default name.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var twoPlayerSettingsSections: some View {
+        if gameMode == .twoPlayer {
+            Section("Table") {
+                Toggle("Flip Screen Each Turn", isOn: $flipScreenForTwoPlayerTurns)
+
+                Text("Buttons and labels rotate to face the current player while the board layout stays in place.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Display") {
+                Toggle("Show Numbers", isOn: $twoPlayerShowNumberLabels)
+
+                Text("Shows the stone counts in each pit and store.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Undo") {
+                Toggle("Show Undo Button", isOn: $isTwoPlayerUndoButtonEnabled)
+                    .onChange(of: isTwoPlayerUndoButtonEnabled) { _, newValue in
+                        if !newValue {
+                            undoHistory.removeAll()
+                        }
+                    }
+
+                Text("Undo rolls back the last completed move.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var gameCenterSettingsSection: some View {
+        Section("Game Center") {
+            Text(onlineManager.statusMessage)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            Button(onlineManager.isAuthenticated ? "View Achievements" : "Sign In to Game Center") {
+                if onlineManager.isAuthenticated {
+                    onlineManager.showAchievements()
+                } else {
+                    onlineManager.authenticateLocalPlayer()
+                }
+            }
+
+            if showsModeSpecificSettings, gameMode == .onlineMultiplayer {
+                Button(onlineManager.isAuthenticated ? "Start Online Match" : "Sign In to Game Center") {
+                    if onlineManager.isAuthenticated {
+                        onlineManager.startMatch()
+                    } else {
+                        onlineManager.authenticateLocalPlayer()
+                    }
+                }
+                .disabled(onlineManager.isAuthenticated && !onlineManager.canStartMatch)
+
+                if onlineManager.currentMatchID != nil {
+                    Button("Forfeit Online Match", role: .destructive) {
+                        onlineManager.forfeitCurrentMatch()
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var onlineSettingsSections: some View {
+        if gameMode == .onlineMultiplayer {
+            Section("Display") {
+                Toggle("Show Numbers", isOn: $onlineShowNumberLabels)
+
+                Text("Shows the stone counts in each pit and store.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var computerOpponentSettingsSections: some View {
+        if gameMode == .singlePlayer || gameMode == .zeroPlayer {
+            Section("First Move") {
+                Picker("Starts", selection: $startingPlayer) {
+                    ForEach(StartingPlayer.allCases) { startingPlayer in
+                        Text(startingPlayerTitle(for: startingPlayer)).tag(startingPlayer)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: startingPlayer) { _, _ in
+                    resetForSettingsChange()
+                }
+
+                Text(startingPlayerDescription)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Display") {
+                Toggle(
+                    "Show Numbers",
+                    isOn: gameMode == .singlePlayer ? $singlePlayerShowNumberLabels : $zeroPlayerShowNumberLabels
+                )
+
+                Text("Shows the stone counts in each pit and store.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if gameMode == .singlePlayer {
+                Section("Undo") {
+                    Toggle("Show Undo Button", isOn: $isSinglePlayerUndoButtonEnabled)
+                        .onChange(of: isSinglePlayerUndoButtonEnabled) { _, newValue in
+                            if !newValue {
+                                undoHistory.removeAll()
+                            }
+                        }
+
+                    Text("Undo cancels AI thinking and rolls back the last player move, or rolls back the last player move plus the AI response.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if shouldShowImpossibleSearchSettings {
+                Section("Advanced") {
+                    DisclosureGroup("Impossible Search") {
+                        Picker("Limit by", selection: $impossibleSearchLimitMode) {
+                            ForEach(ImpossibleSearchLimitMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: impossibleSearchLimitMode) { _, _ in
+                            restartAIThinkingForUpdatedSettingsIfNeeded()
+                        }
+
+                        if impossibleSearchLimitMode == .positions {
+                            impossiblePositionsLimitStepper
+                        } else {
+                            impossibleTimeLimitStepper
+                        }
+
+                        Text(impossibleSearchLimitMode.description)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .onChange(of: impossibleSearchLimit) { _, _ in
+                        restartAIThinkingForUpdatedSettingsIfNeeded()
+                    }
+                    .onChange(of: impossibleSearchTimeLimit) { _, _ in
+                        restartAIThinkingForUpdatedSettingsIfNeeded()
+                    }
+                }
+            }
+        }
     }
 
     private var impossiblePositionsLimitStepper: some View {

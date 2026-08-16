@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- Night Sky set: deep jewel tones under a wet polish. Roughness 0.04 and
+         clearcoat 1.0 in the app, so the speculars are small, hard and bright. -->
+    <radialGradient id="nBlue" cx="0.36" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#4A5AA8"/><stop offset="0.55" stop-color="#29336B"/><stop offset="1" stop-color="#111634"/>
+    </radialGradient>
+    <radialGradient id="nViolet" cx="0.36" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#8248A6"/><stop offset="0.55" stop-color="#52296B"/><stop offset="1" stop-color="#271133"/>
+    </radialGradient>
+    <radialGradient id="nTeal" cx="0.36" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#2E7B92"/><stop offset="0.55" stop-color="#1A4757"/><stop offset="1" stop-color="#0A2028"/>
+    </radialGradient>
+    <radialGradient id="nWine" cx="0.36" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#A9497A"/><stop offset="0.55" stop-color="#6B2E4D"/><stop offset="1" stop-color="#331424"/>
+    </radialGradient>
+    <radialGradient id="nInk" cx="0.36" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#3A4266"/><stop offset="0.55" stop-color="#1F243D"/><stop offset="1" stop-color="#0B0D18"/>
+    </radialGradient>
+    <radialGradient id="spec" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="contact" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.3" stop-color="#3B3948" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#3B3948" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <g fill="url(#contact)">
+    <ellipse cx="154" cy="428" rx="42" ry="27"/><ellipse cx="154" cy="512" rx="42" ry="27"/>
+    <ellipse cx="154" cy="596" rx="42" ry="27"/>
+    <ellipse cx="870" cy="410" rx="42" ry="27"/><ellipse cx="870" cy="494" rx="42" ry="27"/>
+    <ellipse cx="870" cy="578" rx="42" ry="27"/><ellipse cx="870" cy="656" rx="42" ry="27"/>
+    <ellipse cx="512" cy="424" rx="38" ry="25"/>
+    <ellipse cx="682" cy="396" rx="34" ry="22"/><ellipse cx="716" cy="426" rx="34" ry="22"/>
+    <ellipse cx="326" cy="624" rx="38" ry="25"/>
+    <ellipse cx="496" cy="600" rx="34" ry="22"/><ellipse cx="530" cy="628" rx="34" ry="22"/>
+  </g>
+
+  <!-- Left store -->
+  <circle cx="154" cy="414" r="36" fill="url(#nViolet)"/><circle cx="142" cy="402" r="11" fill="url(#spec)"/>
+  <circle cx="154" cy="498" r="36" fill="url(#nTeal)"/><circle cx="142" cy="486" r="11" fill="url(#spec)"/>
+  <circle cx="154" cy="582" r="36" fill="url(#nInk)"/><circle cx="142" cy="570" r="11" fill="url(#spec)"/>
+
+  <!-- Right store, one ahead -->
+  <circle cx="870" cy="396" r="36" fill="url(#nWine)"/><circle cx="858" cy="384" r="11" fill="url(#spec)"/>
+  <circle cx="870" cy="480" r="36" fill="url(#nBlue)"/><circle cx="858" cy="468" r="11" fill="url(#spec)"/>
+  <circle cx="870" cy="564" r="36" fill="url(#nViolet)"/><circle cx="858" cy="552" r="11" fill="url(#spec)"/>
+  <circle cx="870" cy="642" r="34" fill="url(#nTeal)"/><circle cx="859" cy="631" r="10" fill="url(#spec)"/>
+
+  <!-- Pits -->
+  <circle cx="512" cy="410" r="36" fill="url(#nWine)"/><circle cx="500" cy="398" r="11" fill="url(#spec)"/>
+
+  <circle cx="682" cy="384" r="32" fill="url(#nBlue)"/><circle cx="671" cy="373" r="10" fill="url(#spec)"/>
+  <circle cx="716" cy="414" r="32" fill="url(#nViolet)"/><circle cx="705" cy="403" r="10" fill="url(#spec)"/>
+
+  <circle cx="326" cy="610" r="36" fill="url(#nTeal)"/><circle cx="314" cy="598" r="11" fill="url(#spec)"/>
+
+  <circle cx="496" cy="588" r="32" fill="url(#nInk)"/><circle cx="485" cy="577" r="10" fill="url(#spec)"/>
+  <circle cx="530" cy="616" r="32" fill="url(#nWine)"/><circle cx="519" cy="605" r="10" fill="url(#spec)"/>
+</svg>

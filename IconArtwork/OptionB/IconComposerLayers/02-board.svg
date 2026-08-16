@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- objectBoundingBox units, so one pair of gradients carves every well -->
+    <radialGradient id="well" cx="0.35" cy="0.3" r="0.88">
+      <stop offset="0" stop-color="#B5A280"/>
+      <stop offset="0.5" stop-color="#CBBC9C"/>
+      <stop offset="1" stop-color="#EDE4D0"/>
+    </radialGradient>
+    <!-- Light from the top left: shadowed rim above, catch-light below -->
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4A4234" stop-opacity="0.55"/>
+      <stop offset="0.45" stop-color="#4A4234" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Stores -->
+  <g fill="url(#well)" stroke="url(#rim)" stroke-width="11">
+    <rect x="86" y="232" width="124" height="560" rx="62"/>
+    <rect x="814" y="232" width="124" height="560" rx="62"/>
+  </g>
+
+  <!-- Pits, two rows of three -->
+  <g fill="url(#well)" stroke="url(#rim)" stroke-width="11">
+    <circle cx="322" cy="330" r="84"/>
+    <circle cx="512" cy="330" r="84"/>
+    <circle cx="702" cy="330" r="84"/>
+    <circle cx="322" cy="694" r="84"/>
+    <circle cx="512" cy="694" r="84"/>
+    <circle cx="702" cy="694" r="84"/>
+  </g>
+</svg>
