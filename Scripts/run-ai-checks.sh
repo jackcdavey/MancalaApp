@@ -17,9 +17,9 @@ mkdir -p "$BUILD_DIR"
 
 MODE="${1:-standard}"
 case "$MODE" in
-  --quick)  RULES_GAMES=2000;  ORACLE_POSITIONS=40;  DEEP_POSITIONS=8;  LADDER_GAMES=12; LADDER_SCALE=0.02 ;;
-  --full)   RULES_GAMES=50000; ORACLE_POSITIONS=500; DEEP_POSITIONS=60; LADDER_GAMES=200; LADDER_SCALE=0.25 ;;
-  *)        RULES_GAMES=20000; ORACLE_POSITIONS=200; DEEP_POSITIONS=40; LADDER_GAMES=40;  LADDER_SCALE=0.05 ;;
+  --quick)  RULES_GAMES=2000;  ORACLE_POSITIONS=40;  DEEP_POSITIONS=8;  LADDER_GAMES=12; LADDER_SCALE=0.02; REPLAY_SESSIONS=200 ;;
+  --full)   RULES_GAMES=50000; ORACLE_POSITIONS=500; DEEP_POSITIONS=60; LADDER_GAMES=200; LADDER_SCALE=0.25; REPLAY_SESSIONS=20000 ;;
+  *)        RULES_GAMES=20000; ORACLE_POSITIONS=200; DEEP_POSITIONS=40; LADDER_GAMES=40;  LADDER_SCALE=0.05; REPLAY_SESSIONS=2000 ;;
 esac
 
 # Foundation-only sources. ContentView.swift and GameSettings.swift import
@@ -45,6 +45,14 @@ swiftc -O -o "$BUILD_DIR/verify-challenges" \
   Mancala/AI/MancalaOptimalSolver.swift \
   Mancala/Models/ChallengeCatalog.swift \
   Scripts/verify-challenges.swift || exit 1
+
+echo "==> Building verify-online-replay"
+swiftc -O -o "$BUILD_DIR/verify-online-replay" \
+  Mancala/Models/Player.swift \
+  Mancala/Models/MancalaGame.swift \
+  Mancala/Models/PersistenceModels.swift \
+  Mancala/Online/OnlineMatchPayload.swift \
+  Scripts/verify-online-replay.swift || exit 1
 
 FAILED=()
 
@@ -81,6 +89,11 @@ run_check "ladder" \
 
 run_check "verify-challenges" \
   "$BUILD_DIR/verify-challenges"
+
+# The online handover: an opponent's move that can't be replayed stops
+# animating, which is silent in the app.
+run_check "verify-online-replay" \
+  "$BUILD_DIR/verify-online-replay" "$REPLAY_SESSIONS"
 
 echo
 if [ ${#FAILED[@]} -eq 0 ]; then

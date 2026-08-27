@@ -30,6 +30,10 @@ struct MenuPebbleStage: View {
     /// branches on the visual theme.
     let color: (Int) -> Color
     let isDarkMode: Bool
+    /// Set only by the dev menu's preview screen (see `PebbleDevMenu`): the
+    /// stage plays this one item over and over instead of drawing from the
+    /// shuffled decks. `nil` for the real menu.
+    var preview: AnimationItem? = nil
 
     @Environment(\.mancalaVisualTheme) private var visualTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -83,8 +87,13 @@ struct MenuPebbleStage: View {
         .frame(height: Layout.stageHeight)
         .frame(maxWidth: .infinity)
         .accessibilityHidden(true)
+        .perfProbe("PebbleStage")
         .task(id: loopKey) {
-            await runIdleLoop()
+            if let preview {
+                await runPreviewLoop(preview)
+            } else {
+                await runIdleLoop()
+            }
         }
     }
 
@@ -231,14 +240,48 @@ struct MenuPebbleStage: View {
 
     // MARK: Drive loop
 
-    /// Restarts the loop when Reduce Motion is toggled or the app leaves the
-    /// foreground; `.task(id:)` cancels the previous run for us.
+    /// Restarts the loop when Reduce Motion is toggled, the app leaves the
+    /// foreground, the previewed item changes, or the dev menu enables or
+    /// disables something; `.task(id:)` cancels the previous run for us.
     private var loopKey: String {
-        "\(reduceMotion)-\(scenePhase == .active)"
+        var key = "\(reduceMotion)-\(scenePhase == .active)-\(preview?.id ?? "idle")"
+        if PebbleDevMenu.isEnabled {
+            key += "-\(PebbleDevMenu.settings.loopKeyFragment)"
+        }
+        return key
+    }
+
+    /// The plain-cycle shapes, the moods to perform them in, and the set
+    /// pieces, each with anything switched off in the dev menu removed. With
+    /// the dev menu off these are just the tuning decks.
+    private var liveFormations: [Formation] {
+        let deck = Tuning.formationDeck.isEmpty ? Formation.roaming : Tuning.formationDeck
+        return PebbleDevMenu.enabled(deck)
+    }
+
+    private var liveMoods: [Mood] {
+        PebbleDevMenu.enabled(Tuning.moodDeck.isEmpty ? Mood.all : Tuning.moodDeck)
+    }
+
+    private var liveRoutines: [Routine] {
+        PebbleDevMenu.enabled(Tuning.routineDeck)
     }
 
     private func runIdleLoop() async {
         guard !reduceMotion, scenePhase == .active, Tuning.idleMotionEnabled else {
+            restToHome()
+            return
+        }
+
+        let formationDeck = liveFormations
+        let moodDeck = liveMoods
+        let routineDeck = liveRoutines
+        // A plain cycle needs both a shape to draw and a mood to draw it in.
+        let canRunCycles = !formationDeck.isEmpty && !moodDeck.isEmpty
+        // Nothing left to play—which only the dev menu can arrange. Returning
+        // is safe: the loop restarts the moment anything is switched back on,
+        // because that changes `loopKey`.
+        guard canRunCycles || !routineDeck.isEmpty else {
             restToHome()
             return
         }
@@ -254,9 +297,9 @@ struct MenuPebbleStage: View {
         guard await pause(Tuning.startupDelay) else { return }
 
         while !Task.isCancelled {
-            if cyclesUntilRoutine <= 0, !Tuning.routineDeck.isEmpty {
+            if (cyclesUntilRoutine <= 0 || !canRunCycles), !routineDeck.isEmpty {
                 if routines.isEmpty {
-                    routines = Tuning.routineDeck.shuffled()
+                    routines = routineDeck.shuffled()
                 }
                 cyclesUntilRoutine = Int.random(in: Tuning.cyclesBetweenRoutines)
                 guard await perform(routines.removeLast()) else { return }
@@ -267,7 +310,7 @@ struct MenuPebbleStage: View {
             cyclesUntilRoutine = max(cyclesUntilRoutine - 1, 0)
 
             if shapes.isEmpty {
-                shapes = (Tuning.formationDeck.isEmpty ? Formation.roaming : Tuning.formationDeck).shuffled()
+                shapes = formationDeck.shuffled()
                 // `removeLast` draws from the end, so a repeat of the shape we
                 // just showed is only possible at that one position.
                 if shapes.count > 1, shapes.last == lastShape {
@@ -275,25 +318,53 @@ struct MenuPebbleStage: View {
                 }
             }
             if moods.isEmpty {
-                moods = (Tuning.moodDeck.isEmpty ? Mood.all : Tuning.moodDeck).shuffled()
+                moods = moodDeck.shuffled()
             }
 
-            let nextMood = moods.removeLast()
             let nextShape = shapes.removeLast()
             lastShape = nextShape
 
-            let speed = Tuning.clamped(speed: Tuning.travelSpeed)
-            let nextMotion = Motion(animation: nextMood.travel, stagger: nextMood.stagger)
-                .paced(speed: speed)
-            // The settle covers the travel itself, so it tracks `travelSpeed`
-            // while the dwell either side is tuned independently.
-            let travelTime = nextMood.settle / speed
+            guard await runCycle(shape: nextShape, mood: moods.removeLast()) else { return }
+        }
+    }
 
-            move(to: nextShape.positions, motion: nextMotion, rolling: nextMood.rolls)
-            guard await pause(travelTime + nextMood.hold * Tuning.holdScale + Tuning.holdBonus) else { return }
+    /// One out-and-back trip: roll into `shape`, dwell, roll home, dwell.
+    /// Returns false if the loop was cancelled part-way.
+    private func runCycle(shape: Formation, mood: Mood) async -> Bool {
+        let speed = Tuning.clamped(speed: Tuning.travelSpeed)
+        let motion = Motion(animation: mood.travel, stagger: mood.stagger).paced(speed: speed)
+        // The settle covers the travel itself, so it tracks `travelSpeed`
+        // while the dwell either side is tuned independently.
+        let travelTime = mood.settle / speed
 
-            move(to: Formation.home.positions, motion: nextMotion, rolling: nextMood.rolls)
-            guard await pause(travelTime + nextMood.rest * Tuning.restScale + Tuning.restBonus) else { return }
+        move(to: shape.positions, motion: motion, rolling: mood.rolls)
+        guard await pause(travelTime + mood.hold * Tuning.holdScale + Tuning.holdBonus) else { return false }
+
+        move(to: Formation.home.positions, motion: motion, rolling: mood.rolls)
+        return await pause(travelTime + mood.rest * Tuning.restScale + Tuning.restBonus)
+    }
+
+    /// Plays one catalog item on repeat for the dev menu. Deliberately ignores
+    /// Reduce Motion and `idleMotionEnabled`: asking to preview an animation is
+    /// asking to see it move, and nothing here is decoration the user didn't
+    /// go looking for.
+    private func runPreviewLoop(_ item: AnimationItem) async {
+        guard scenePhase == .active else {
+            restToHome()
+            return
+        }
+
+        guard await pause(Tuning.previewStartupDelay) else { return }
+
+        while !Task.isCancelled {
+            switch item.payload {
+            case let .formation(formation):
+                guard await runCycle(shape: formation, mood: AnimationItem.previewMood) else { return }
+            case let .mood(mood):
+                guard await runCycle(shape: AnimationItem.previewShape, mood: mood) else { return }
+            case let .routine(routine):
+                guard await perform(routine) else { return }
+            }
         }
     }
 
@@ -386,6 +457,10 @@ extension MenuPebbleStage {
         /// Dead time after the menu appears before the pebbles first stir.
         /// Long enough by default for the menu's own fade-in to finish.
         static var startupDelay: Double = 0.5
+
+        /// The same for the dev menu's preview stage, where the wait is only
+        /// long enough to see the resting row before it breaks apart.
+        static var previewStartupDelay: Double = 0.35
 
         /// Master switch for the idle loop. Off leaves the pebbles in the
         /// resting row—still pushable, just never self-propelled.
@@ -497,8 +572,14 @@ extension MenuPebbleStage {
 
     /// The occasional showpiece: longer, scripted, and rarer than a formation
     /// cycle. Each one must finish with the group upright and untranslated.
-    fileprivate struct Routine {
-        let steps: [Step]
+    ///
+    /// Visible outside this file only so the dev menu can list one by name;
+    /// the script itself stays private to the stage.
+    struct Routine {
+        /// Identify the routine in the dev menu. Never shown to players.
+        let name: String
+        let detail: String
+        fileprivate let steps: [Step]
 
         static let all: [Routine] = [.wheel, .cradle, .leapfrog, .carousel, .vortex, .seesaw]
 
@@ -524,7 +605,10 @@ extension MenuPebbleStage {
 
         /// Gather into a wheel, roll off the right edge, come back on from the
         /// left, and fall apart into the row again.
-        static let wheel = Routine(steps: [
+        static let wheel = Routine(
+            name: "Wheel",
+            detail: "Gathers into a wheel, rolls off the right edge, and comes back on from the left.",
+            steps: [
             Step(points: wheelPose,
                  motion: Motion(animation: .spring(response: 0.55, dampingFraction: 0.80), stagger: 0.045),
                  rolls: true,
@@ -550,7 +634,10 @@ extension MenuPebbleStage {
         ])
 
         /// Newton's cradle: the outer pebbles trade a swing through the middle.
-        static let cradle = Routine(steps: [
+        static let cradle = Routine(
+            name: "Cradle",
+            detail: "Newton's cradle: the outer pebbles trade a swing through the middle.",
+            steps: [
             Step(points: line([-64, -32, 0, 32, 64]),
                  motion: Motion(animation: .spring(response: 0.50, dampingFraction: 0.85), stagger: 0.05),
                  rolls: true,
@@ -623,12 +710,19 @@ extension MenuPebbleStage {
                               motion: Motion(animation: .spring(response: 0.55, dampingFraction: 0.80), stagger: 0.04),
                               rolls: true,
                               hold: 2.2))
-            return Routine(steps: steps)
+            return Routine(
+                name: "Leapfrog",
+                detail: "Each pebble in turn arcs over the row to the far end.",
+                steps: steps
+            )
         }()
 
         /// A fairground turn: the ring breathes wider and back while the whole
         /// group rotates two full times.
-        static let carousel = Routine(steps: [
+        static let carousel = Routine(
+            name: "Carousel",
+            detail: "A ring that breathes wider and back through two full turns.",
+            steps: [
             Step(points: ring(13),
                  motion: Motion(animation: .spring(response: 0.50, dampingFraction: 0.85), stagger: 0.04),
                  rolls: true,
@@ -652,7 +746,10 @@ extension MenuPebbleStage {
         ])
 
         /// Spiral inward to a huddle, hang there a beat, then burst back out.
-        static let vortex = Routine(steps: [
+        static let vortex = Routine(
+            name: "Vortex",
+            detail: "Spirals inward to a huddle, hangs a beat, then bursts back out.",
+            steps: [
             Step(points: ring(spinningRadius),
                  motion: Motion(animation: .spring(response: 0.50, dampingFraction: 0.80), stagger: 0.05),
                  rolls: true,
@@ -678,7 +775,10 @@ extension MenuPebbleStage {
         ])
 
         /// The row spreads into a beam and rocks itself to a standstill.
-        static let seesaw = Routine(steps: [
+        static let seesaw = Routine(
+            name: "Seesaw",
+            detail: "The row spreads into a beam and rocks itself to a standstill.",
+            steps: [
             Step(points: line([-62, -31, 0, 31, 62]),
                  motion: Motion(animation: .spring(response: 0.50, dampingFraction: 0.85), stagger: 0.04),
                  rolls: true,
@@ -756,7 +856,7 @@ extension MenuPebbleStage {
     /// Pebble positions as offsets from the centre of the stage. Every case
     /// stays inside roughly ±61pt horizontally and ±25pt vertically (including
     /// the pebble radius), so nothing escapes the stage frame.
-    fileprivate enum Formation: CaseIterable, Equatable {
+    enum Formation: CaseIterable, Equatable {
         /// The resting row: the original `HStack(spacing: 9)` laid out by hand.
         case home
         case ring
@@ -769,6 +869,33 @@ extension MenuPebbleStage {
 
         /// Everything except `home`—the loop always returns home in between.
         static let roaming: [Formation] = allCases.filter { $0 != .home }
+
+        /// Names the shape in the dev menu. Never shown to players.
+        var name: String {
+            switch self {
+            case .home: "Row"
+            case .ring: "Ring"
+            case .arc: "Arc"
+            case .wave: "Wave"
+            case .cascade: "Cascade"
+            case .pyramid: "Pyramid"
+            case .orbit: "Orbit"
+            case .huddle: "Huddle"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .home: "The resting row the loop always comes back to."
+            case .ring: "A wide ellipse, the full width of the stage."
+            case .arc: "A shallow smile with both ends lifted."
+            case .wave: "Alternating high and low, a zigzag across the row."
+            case .cascade: "A diagonal staircase, low on the left to high on the right."
+            case .pyramid: "Three low, two perched in the gaps between them."
+            case .orbit: "Four around the fat centre pebble, which stays put."
+            case .huddle: "All five bunched together at the centre."
+            }
+        }
 
         var positions: [CGPoint] {
             switch self {
@@ -817,7 +944,10 @@ extension MenuPebbleStage {
 extension MenuPebbleStage {
     /// How a single out-and-back cycle is performed. Cycles are drawn from a
     /// shuffled deck of these so the loop reads as varied rather than timed.
-    fileprivate struct Mood: Equatable {
+    struct Mood: Equatable {
+        /// Identify the mood in the dev menu. Never shown to players.
+        let name: String
+        let detail: String
         let travel: Animation
         /// Roughly how long `travel` needs to look finished—used only for
         /// pacing the sleeps, not for the animation itself.
@@ -830,6 +960,8 @@ extension MenuPebbleStage {
         let rest: Double
 
         static let tumble = Mood(
+            name: "Tumble",
+            detail: "Springy and quick, rolling the whole way.",
             travel: .spring(response: 0.62, dampingFraction: 0.62),
             settle: 1.2,
             stagger: 0.055,
@@ -841,6 +973,8 @@ extension MenuPebbleStage {
         /// Slow and weightless: no rolling, because a lazy drift that spins
         /// looks driven rather than drifting.
         static let drift = Mood(
+            name: "Drift",
+            detail: "Slow and weightless, with no roll at all.",
             travel: .easeInOut(duration: 1.9),
             settle: 2.4,
             stagger: 0.12,
@@ -850,6 +984,8 @@ extension MenuPebbleStage {
         )
 
         static let cascadeRoll = Mood(
+            name: "Cascade Roll",
+            detail: "A firm spring with a long per-pebble stagger, so the row peels apart.",
             travel: .spring(response: 0.50, dampingFraction: 0.80),
             settle: 1.2,
             stagger: 0.11,
@@ -860,4 +996,123 @@ extension MenuPebbleStage {
 
         static let all: [Mood] = [.tumble, .drift, .cascadeRoll]
     }
+}
+
+// MARK: - Animation catalog
+
+extension MenuPebbleStage {
+    /// One reviewable animation, as listed by the dev menu (`PebbleDevMenu`).
+    ///
+    /// The catalog is the only thing outside this file that knows the stage's
+    /// vocabulary, and it exists purely so a shape, a mood or a set piece can
+    /// be named, previewed on its own, and taken out of the deck while it's
+    /// being worked on. Nothing the player sees depends on it.
+    struct AnimationItem: Identifiable, Equatable {
+        enum Kind: String, CaseIterable {
+            case formation
+            case mood
+            case routine
+
+            var title: String {
+                switch self {
+                case .formation: "Shapes"
+                case .mood: "Moods"
+                case .routine: "Routines"
+                }
+            }
+
+            var footer: String {
+                switch self {
+                case .formation: "Poses a plain cycle rolls out into before rolling home."
+                case .mood: "How briskly a plain cycle is performed."
+                case .routine: "Scripted set pieces that interrupt every few cycles."
+                }
+            }
+        }
+
+        enum Payload {
+            case formation(Formation)
+            case mood(Mood)
+            case routine(Routine)
+        }
+
+        let id: String
+        let kind: Kind
+        let title: String
+        let detail: String
+        let payload: Payload
+
+        /// A shape is previewed in one fixed mood and a mood over one fixed
+        /// shape, so that two of either can be told apart by the one thing
+        /// that differs between them.
+        static let previewMood = Mood.tumble
+        static let previewShape = Formation.wave
+
+        /// What the preview is holding constant, spelled out on screen so a
+        /// mood's stagger isn't mistaken for a property of the shape.
+        var previewNote: String {
+            switch kind {
+            case .formation: "Shown in the \(Self.previewMood.name) mood, on a loop."
+            case .mood: "Shown rolling out to the \(Self.previewShape.name) shape, on a loop."
+            case .routine: "Played on a loop, with its own closing rest between runs."
+            }
+        }
+
+        static func == (lhs: AnimationItem, rhs: AnimationItem) -> Bool {
+            lhs.id == rhs.id
+        }
+
+        init(_ formation: Formation) {
+            id = formation.animationID
+            kind = .formation
+            title = formation.name
+            detail = formation.detail
+            payload = .formation(formation)
+        }
+
+        init(_ mood: Mood) {
+            id = mood.animationID
+            kind = .mood
+            title = mood.name
+            detail = mood.detail
+            payload = .mood(mood)
+        }
+
+        init(_ routine: Routine) {
+            id = routine.animationID
+            kind = .routine
+            title = routine.name
+            detail = routine.detail
+            payload = .routine(routine)
+        }
+    }
+
+    /// Everything the idle loop can play, in the order the dev menu lists it.
+    /// `home` is left out: it's the rest pose every cycle returns to rather
+    /// than an animation in its own right.
+    static let animationCatalog: [AnimationItem] =
+        Formation.roaming.map { AnimationItem($0) }
+        + Mood.all.map { AnimationItem($0) }
+        + Routine.all.map { AnimationItem($0) }
+
+    static func animationItems(of kind: AnimationItem.Kind) -> [AnimationItem] {
+        animationCatalog.filter { $0.kind == kind }
+    }
+}
+
+// MARK: - Identity
+
+/// Stable keys for the dev menu's on/off switches, which outlive a launch in
+/// `UserDefaults`. Built from the names rather than the declaration order so
+/// reordering a deck doesn't silently re-point somebody's switches.
+extension MenuPebbleStage.Formation {
+    var animationID: String { "formation.\(name)" }
+}
+
+extension MenuPebbleStage.Mood {
+    var animationID: String { "mood.\(name)" }
+}
+
+extension MenuPebbleStage.Routine {
+    var animationID: String { "routine.\(name)" }
 }

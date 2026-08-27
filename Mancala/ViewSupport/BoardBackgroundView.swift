@@ -48,6 +48,7 @@ struct BoardBackgroundView: View {
             // cut where the gradient's own falloff hasn't finished.
             .clipped()
         }
+        .perfProbe("BoardBackground")
         .onAppear(perform: restartDrift)
         .onChange(of: reduceMotion) { _, _ in restartDrift() }
         .onChange(of: style) { _, _ in restartDrift() }

@@ -56,6 +56,24 @@ struct ContentView: View {
     @State private var aiThoughtLog: [String] = []
     @State private var isZeroPlayerPaused = true
     @State private var onlineManager = GameCenterMultiplayerManager()
+    /// Every pit the local player has sowed since the last handoff. A turn can
+    /// run to several sows when stones keep landing in the player's own store,
+    /// and the far device replays the whole run so the opponent's stones are
+    /// seen travelling rather than appearing where they stopped.
+    @State private var pendingOnlineMoveIndices: [Int] = []
+    /// True while the board is playing back the opponent's sows; taps are
+    /// already refused (it isn't the local player's turn), but the replay also
+    /// must not be cut short by another inbound update.
+    @State private var isReplayingOnlineMove = false
+    /// The match the board on screen belongs to. An update from any other one
+    /// means a new session, and a new session always opens on a fresh board.
+    @State private var appliedOnlineMatchID: String?
+    @State private var isConfirmingOnlineExit = false
+    @State private var onlineEndingNotice: OnlineMatchEnding?
+    /// Set when Online was picked from the menu before Game Center had
+    /// finished signing in: matchmaking opens as soon as it does, so the
+    /// player isn't left on a board with nothing to tap.
+    @State private var isAwaitingOnlineMatchmaking = false
     @AppStorage("impossibleSearchLimitMode") private var impossibleSearchLimitMode = AppDefaults.impossibleSearchLimitMode
     @AppStorage("impossibleSearchLimit") private var impossibleSearchLimit = AppDefaults.impossibleSearchLimit
     @AppStorage("impossibleSearchTimeLimit") private var impossibleSearchTimeLimit = AppDefaults.impossibleSearchTimeLimit
@@ -66,13 +84,16 @@ struct ContentView: View {
     @AppStorage("savedSinglePlayerGameState") private var savedSinglePlayerGameState = Data()
     @AppStorage("savedTwoPlayerGameState") private var savedTwoPlayerGameState = Data()
     @AppStorage("savedZeroPlayerGameState") private var savedZeroPlayerGameState = Data()
-    @AppStorage("savedOnlineGameState") private var savedOnlineGameState = Data()
     @AppStorage("completedGameHistory") private var completedGameHistoryData = Data()
     @AppStorage("savedGameState") private var legacySavedGameState = Data()
     /// The board drawn inside the window. On visionOS the volume keeps a scene
     /// of its own: a built RealityKit graph can't be handed from one
     /// `RealityView` to another, so each host needs its own.
     @State private var boardScene = BoardScene()
+    /// Read on every platform: the parallax controller wants it, and so does
+    /// the online session, which treats the app going away as the player
+    /// leaving the match.
+    @Environment(\.scenePhase) private var scenePhase
     #if os(visionOS)
     @Environment(SpatialBoardModel.self) private var spatialBoard
     @Environment(\.openWindow) private var openWindow
@@ -80,6 +101,10 @@ struct ContentView: View {
     /// Where the player last left the board. Defaults to the window, so a first
     /// launch is one window and nothing else in the room.
     @AppStorage("prefersBoardInSpace") private var prefersBoardInSpace = false
+    /// How much light the app adds to the 3D board on top of the room's own —
+    /// the room is the board's only light source here, and it runs out early.
+    /// See `BoardBrightness`.
+    @AppStorage("boardBrightness") private var boardBrightness = AppDefaults.boardBrightness
     @State private var isHeaderMenuPresented = false
     #else
     @State private var motionParallax = MotionParallaxController()
@@ -128,6 +153,9 @@ struct ContentView: View {
                 // Layered above the game rather than replacing it, so the 3D
                 // board's RealityView stays mounted (and warms up) behind the
                 // menu; see the ZStack in `gameContent` for why that matters.
+                // Mounted, but faded out rather than covered over — see
+                // `gameContentOpacity` — so `background` above is the page the
+                // menu sits on, and the menu carries no backdrop of its own.
                 if isMainMenuPresented {
                     mainMenu
                         .transition(.opacity)
@@ -195,13 +223,90 @@ struct ContentView: View {
         .onChange(of: spatialEndGameBanner, initial: true) { _, banner in
             spatialBoard.endGame = banner
         }
+        // Both boards, not just the one in the room: the window's board is lit
+        // by the room too. Pushed here rather than through either board's sync
+        // so neither view needs a parameter the other platform hasn't got, and
+        // so a scene that isn't built yet still gets the level (it keeps it).
+        .onChange(of: boardBrightness, initial: true) { _, level in
+            boardScene.setBrightness(level)
+            spatialBoard.scene.setBrightness(level)
+        }
         #endif
-        .onChange(of: onlineManager.currentMatchID) { _, _ in
-            applyPendingOnlineMatchIfNeeded()
+        // Watched through a version counter rather than the payload itself:
+        // an opponent who plays the same pit twice running sends two updates
+        // that compare equal field for field, and the second would be missed.
+        .onChange(of: onlineManager.updateVersion) { _, _ in
+            Task { await applyPendingOnlineMatchIfNeeded() }
         }
-        .onChange(of: onlineManager.pendingRemoteMoveIndex) { _, _ in
-            applyPendingOnlineMatchIfNeeded()
+        // Online was picked while Game Center was still signing in. Open
+        // matchmaking the moment it lands, and give up on it if sign-in
+        // fails or the player has moved on somewhere else in the meantime.
+        .onChange(of: onlineManager.state) { _, state in
+            guard isAwaitingOnlineMatchmaking else { return }
+
+            guard gameMode == .onlineMultiplayer, !isMainMenuPresented else {
+                isAwaitingOnlineMatchmaking = false
+                return
+            }
+
+            switch state {
+            case .ready:
+                beginOnlineMatchmaking()
+            case .signedOut, .unavailable, .error:
+                isAwaitingOnlineMatchmaking = false
+            case .matching, .inMatch:
+                break
+            }
         }
+        .onChange(of: onlineManager.matchEnding) { _, ending in
+            guard let ending else { return }
+            onlineEndingNotice = ending
+            onlineManager.clearMatchEnding()
+        }
+        // An online session is live — there is a minute on the clock — so
+        // putting the app away leaves the match rather than parking it, and
+        // the opponent hears about it instead of waiting out the timer.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .background, onlineManager.isInActiveMatch else { return }
+            onlineManager.handleAppDidEnterBackground()
+            startFreshOnlineSession()
+        }
+        .confirmationDialog(
+            "Leave this online match?",
+            isPresented: $isConfirmingOnlineExit,
+            titleVisibility: .visible
+        ) {
+            Button("Leave Match", role: .destructive) {
+                onlineManager.leaveCurrentMatch()
+                startFreshOnlineSession()
+                isMainMenuPresented = true
+            }
+            Button("Keep Playing", role: .cancel) { }
+        } message: {
+            Text("\(onlineManager.opponentName) will be told you left, and the match will be forfeited.")
+        }
+        .alert(
+            onlineEndingNotice?.title ?? "",
+            isPresented: Binding(
+                get: { onlineEndingNotice != nil },
+                set: { if !$0 { onlineEndingNotice = nil } }
+            ),
+            presenting: onlineEndingNotice
+        ) { _ in
+            Button("New Match") {
+                onlineEndingNotice = nil
+                startFreshOnlineSession()
+                onlineManager.startMatch()
+            }
+            Button("Main Menu", role: .cancel) {
+                onlineEndingNotice = nil
+                startFreshOnlineSession()
+                isMainMenuPresented = true
+            }
+        } message: { ending in
+            Text(ending.message)
+        }
+        .perfProbe("ContentView")
         .onChange(of: game.isGameOver || challengeFailed) { _, isFinished in
             guard isFinished else {
                 endGameAnimationPulse = false
@@ -238,23 +343,6 @@ struct ContentView: View {
         }
     }
 
-    /// The menu's own copy of the page background, painted over the game while
-    /// the menu is up.
-    ///
-    /// There isn't one on visionOS. The window's content has depth there now
-    /// that it holds a board, and a second opaque layer covering the whole
-    /// window inside that depth is what stopped the menu reading as a window at
-    /// all — square corners where the glass should round them off, and the
-    /// window bar and resize grips buried behind it. The window's own backdrop
-    /// serves instead, with the game hidden beneath rather than covered over
-    /// (see `gameContentOpacity`).
-    @ViewBuilder
-    private var menuBackground: some View {
-        #if !os(visionOS)
-        background
-        #endif
-    }
-
     /// How far to hold the main menu back toward the window's glass. The
     /// window's content is as deep as the board asks for, and the menu, being
     /// the last thing in the stack, is laid out at the front of that depth — a
@@ -269,14 +357,23 @@ struct ContentView: View {
     }
 
     /// The game stays mounted under the main menu — that's what keeps the 3D
-    /// board's RealityView alive and warm — but on visionOS it's hidden rather
-    /// than painted over, so the menu needs no backdrop of its own.
+    /// board's RealityView alive and warm — but it's hidden rather than painted
+    /// over, so the menu needs no backdrop of its own and `background` above is
+    /// the only copy of the page anywhere in the stack.
+    ///
+    /// visionOS needed this first, for looks: the window's content has depth now
+    /// that it holds a board, and a second opaque layer covering the whole
+    /// window inside that depth is what stopped the menu reading as a window at
+    /// all — square corners where the glass should round them off, and the
+    /// window bar and resize grips buried behind it.
+    ///
+    /// Everywhere else it's about power. Covering the game meant a second
+    /// `BoardBackgroundView` behind the menu's copy, and both run their own
+    /// `repeatForever` drift; for the busier styles that's two sets of blooms
+    /// redrawn every frame with one set permanently out of sight. Hiding the
+    /// game instead leaves one.
     private var gameContentOpacity: Double {
-        #if os(visionOS)
-        return isMainMenuPresented ? 0 : 1
-        #else
-        return 1
-        #endif
+        isMainMenuPresented ? 0 : 1
     }
 
     private var lightBackgroundColors: [Color] {
@@ -412,6 +509,19 @@ struct ContentView: View {
     /// True while the window is the one drawing the board.
     private var isWindowBoardShown: Bool {
         is3DBoardActive && !isBoardPlacedInSpace && !isBoardSlotObscured
+    }
+
+    /// Whether the window board's pixels are actually wanted on screen.
+    ///
+    /// Distinct from `isWindowBoardShown` only in also standing down for the
+    /// main menu, which on iOS hides the board with opacity rather than taking
+    /// its slot away. `BoardScene.setRendering` explains why opacity isn't
+    /// enough: it hides the board from the player, not from RealityKit, which
+    /// keeps shading and lighting it at 60 Hz regardless. This covers the flat
+    /// theme too — a player who never chose the 3D board was still paying to
+    /// render one.
+    private var isBoardRenderingNeeded: Bool {
+        isWindowBoardShown && !isMainMenuPresented
     }
 
     /// True while a sheet or the main menu covers the window.
@@ -1063,11 +1173,13 @@ struct ContentView: View {
             boardScene.onPitTapped = { index in
                 Task { await animateMove(from: index) }
             }
+            boardScene.setRendering(isBoardRenderingNeeded)
             #if !os(visionOS)
-            if gyroMotionEnabled {
-                startMotionParallax()
-            }
+            updateMotionParallax()
             #endif
+        }
+        .onChange(of: isBoardRenderingNeeded) { _, needed in
+            boardScene.setRendering(needed)
         }
         #if !os(visionOS)
         // Parallax leans the board with the device; there's no device to lean
@@ -1075,13 +1187,8 @@ struct ContentView: View {
         .onDisappear {
             motionParallax.stop()
         }
-        .onChange(of: gyroMotionEnabled) { _, enabled in
-            if enabled {
-                startMotionParallax()
-            } else {
-                motionParallax.stop()
-                boardScene.setParallax(yaw: 0, pitch: 0)
-            }
+        .onChange(of: shouldRunMotionParallax) { _, _ in
+            updateMotionParallax()
         }
         #endif
     }
@@ -1127,7 +1234,33 @@ struct ContentView: View {
     }
 
     #if !os(visionOS)
-    private func startMotionParallax() {
+    /// Device motion is only worth running while the board is actually on
+    /// screen and the app is in front.
+    ///
+    /// The board deliberately stays mounted under the main menu — that's what
+    /// keeps its `RealityView` warm — so `onDisappear` never fires while the
+    /// menu is up. Left ungated, the gyro streams at 60 Hz for as long as the
+    /// player sits on the menu, and every sample writes a camera transform into
+    /// a RealityKit scene nobody can see, which keeps the renderer from ever
+    /// going idle. Sensor power plus a pinned render loop, all for a hidden
+    /// board.
+    private var shouldRunMotionParallax: Bool {
+        gyroMotionEnabled && !isMainMenuPresented && scenePhase == .active
+    }
+
+    private func updateMotionParallax() {
+        guard shouldRunMotionParallax else {
+            motionParallax.stop()
+            // Only neutralize the camera when the player turned parallax off.
+            // Pausing for the menu or a trip to the background leaves the pose
+            // alone, so the board doesn't visibly snap upright as it fades out;
+            // the first sample after resuming re-zeroes it anyway.
+            if !gyroMotionEnabled {
+                boardScene.setParallax(yaw: 0, pitch: 0)
+            }
+            return
+        }
+
         motionParallax.start { yaw, pitch in
             boardScene.setParallax(yaw: yaw, pitch: pitch)
         }
@@ -1237,25 +1370,23 @@ struct ContentView: View {
     // MARK: Main menu
 
     /// The screen shown on launch (and via the header menu): the game keeps
-    /// running—and the 3D board keeps warming up—underneath, hidden by the
-    /// menu's own copy of the page background.
+    /// running—and the 3D board keeps warming up—underneath, faded out rather
+    /// than covered over (see `gameContentOpacity`), so the page background
+    /// behind everything shows through and the menu needs no backdrop of its
+    /// own.
     private var mainMenu: some View {
-        ZStack {
-            menuBackground
-
-            Group {
-                if isMainMenuShowingChallenges {
-                    challengeListPage
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else {
-                    mainMenuPage
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
+        Group {
+            if isMainMenuShowingChallenges {
+                challengeListPage
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                mainMenuPage
+                    .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            .frame(maxWidth: 440)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .animation(.spring(response: 0.34, dampingFraction: 0.88), value: isMainMenuShowingChallenges)
         }
+        .frame(maxWidth: 440)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.spring(response: 0.34, dampingFraction: 0.88), value: isMainMenuShowingChallenges)
         .accessibilityElement(children: .contain)
     }
 
@@ -1575,7 +1706,35 @@ struct ContentView: View {
         if gameMode == .zeroPlayer {
             isZeroPlayerPaused = true
         }
+
+        // Leaving a live online match forfeits it and drops the opponent, so
+        // it takes a deliberate second tap.
+        if gameMode == .onlineMultiplayer, onlineManager.isInActiveMatch, !game.isGameOver {
+            isConfirmingOnlineExit = true
+            return
+        }
+
         isMainMenuPresented = true
+    }
+
+    /// Puts the online board back to the opening layout. Every online session
+    /// starts here: a match nobody has moved in yet carries no board of its
+    /// own, and whatever the last session left behind belongs to that session,
+    /// not this one.
+    private func startFreshOnlineSession() {
+        pendingOnlineMoveIndices.removeAll()
+        isReplayingOnlineMove = false
+        appliedOnlineMatchID = nil
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            game.reset(startingPlayer: .playerOne)
+            undoHistory.removeAll()
+            flyingStone = nil
+            hintedPitIndex = nil
+            isAnimatingMove = false
+            isAIMovePending = false
+            hasRecordedCurrentCompletedGame = false
+            endGameAnimationPulse = false
+        }
     }
 
     private func startGameFromMenu(_ mode: GameMode) {
@@ -1591,6 +1750,10 @@ struct ContentView: View {
             gameMode = mode
             switchGameMode(from: oldMode, to: mode)
             clearChallengeState()
+
+            if mode == .onlineMultiplayer {
+                beginOnlineMatchmaking()
+            }
             return
         }
 
@@ -1603,6 +1766,34 @@ struct ContentView: View {
                 await runAIMoveIfNeeded()
             }
         }
+
+        if mode == .onlineMultiplayer {
+            beginOnlineMatchmaking()
+        }
+    }
+
+    /// Picking Online goes straight to Game Center matchmaking. The board on
+    /// its own offers nothing to tap, and an opponent is the one thing an
+    /// online session can't start without.
+    private func beginOnlineMatchmaking() {
+        // A live match is what the player is coming back to; don't reset the
+        // board out from under it to go looking for another opponent.
+        guard !onlineManager.isInActiveMatch else {
+            isAwaitingOnlineMatchmaking = false
+            return
+        }
+
+        guard onlineManager.isReadyToPlayOnline else {
+            // Sign-in is kicked off at launch and may still be in flight, so
+            // wait for it rather than sending the player to find the way in.
+            isAwaitingOnlineMatchmaking = true
+            onlineManager.authenticateLocalPlayer()
+            return
+        }
+
+        isAwaitingOnlineMatchmaking = false
+        startFreshOnlineSession()
+        onlineManager.startMatch()
     }
 
     // MARK: Challenges
@@ -1958,6 +2149,8 @@ struct ContentView: View {
                     onlineSettingsSections
                     computerOpponentSettingsSections
                 }
+
+                developerSettingsSection
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -1971,7 +2164,38 @@ struct ContentView: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        // The dev menu is a list to scroll and a preview to watch, neither of
+        // which fits in half a sheet.
+        .presentationDetents(PebbleDevMenu.isEnabled || OnlineDevMenu.isEnabled ? [.medium, .large] : [.medium])
+    }
+
+    /// Present only while `PebbleDevMenu.isEnabled`; see that flag for what it
+    /// costs when it's off, which is nothing.
+    @ViewBuilder
+    private var developerSettingsSection: some View {
+        if PebbleDevMenu.isEnabled || OnlineDevMenu.isEnabled {
+            Section("Developer") {
+                if PebbleDevMenu.isEnabled {
+                    NavigationLink("Pebble Animations") {
+                        MenuPebbleDevMenuView(color: { stoneColor(for: $0) }, isDarkMode: isDarkMode)
+                    }
+
+                    Text("Preview each of the main menu's pebble animations on its own, and take any of them out of the loop.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                if OnlineDevMenu.isEnabled {
+                    NavigationLink("Online Match Simulator") {
+                        OnlineMatchSimulatorView(settings: OnlineDevMenu.settings, manager: onlineManager)
+                    }
+
+                    Text("Play an online session through on one device, against a local stand-in for the far phone.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -2053,7 +2277,18 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
 
             if visualTheme == .liquidGlass {
-                #if !os(visionOS)
+                #if os(visionOS)
+                Picker("Board Brightness", selection: $boardBrightness) {
+                    ForEach(BoardBrightness.allCases) { level in
+                        Text(level.title).tag(level)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(boardBrightness.description)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                #else
                 Toggle("Motion Parallax", isOn: $gyroMotionEnabled)
 
                 Text("Tilts the board's perspective with your device's motion.")
@@ -2149,20 +2384,14 @@ struct ContentView: View {
                 }
             }
 
-            if showsModeSpecificSettings, gameMode == .onlineMultiplayer {
-                Button(onlineManager.isAuthenticated ? "Start Online Match" : "Sign In to Game Center") {
-                    if onlineManager.isAuthenticated {
-                        onlineManager.startMatch()
-                    } else {
-                        onlineManager.authenticateLocalPlayer()
-                    }
-                }
-                .disabled(onlineManager.isAuthenticated && !onlineManager.canStartMatch)
-
-                if onlineManager.currentMatchID != nil {
-                    Button("Forfeit Online Match", role: .destructive) {
-                        onlineManager.forfeitCurrentMatch()
-                    }
+            // No "Start Online Match" here: matchmaking opens on its own when
+            // Online is picked from the menu, and again from the end-of-match
+            // notice, so a copy buried in Settings is one the player would
+            // never need to find.
+            if showsModeSpecificSettings, gameMode == .onlineMultiplayer, onlineManager.isInActiveMatch {
+                Button("Forfeit Online Match", role: .destructive) {
+                    onlineManager.leaveCurrentMatch()
+                    startFreshOnlineSession()
                 }
             }
         }
@@ -2175,6 +2404,16 @@ struct ContentView: View {
                 Toggle("Show Numbers", isOn: $onlineShowNumberLabels)
 
                 Text("Shows the stone counts in each pit and store.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Match Rules") {
+                Text("Each player has \(Int(GameCenterMultiplayerManager.turnTimeLimit)) seconds to make a move. Running out of time forfeits the match.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Text("Online matches are live. Leaving the game or closing the app forfeits the match and ends it for your opponent.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -2325,6 +2564,11 @@ struct ContentView: View {
 
                 Section("Ending the Game") {
                     Text("The game ends when all six pits on either side are empty. Any remaining stones move to their owner's store, and the higher score wins.")
+                }
+
+                Section("Online Matches") {
+                    Text("An online match is live. Every session starts from a fresh board, and each player has \(Int(GameCenterMultiplayerManager.turnTimeLimit)) seconds to make a move.")
+                    Text("Running out of time, leaving the match, or closing the app forfeits the game — and tells your opponent you've gone.")
                 }
             }
             .navigationTitle("Rules")
@@ -2512,6 +2756,8 @@ struct ContentView: View {
                         .font(displayFont(size: 17, weight: .semibold))
                         .contentTransition(.numericText())
 
+                    onlineTurnClock
+
                     if isAIMovePending {
                         ProgressView()
                             .controlSize(.small)
@@ -2565,6 +2811,41 @@ struct ContentView: View {
         .multilineTextAlignment(.center)
         .mancalaGlassEffect(tint: storeTint, cornerRadius: 18, role: .panel)
         .accessibilityHint("Tap to show or hide AI thinking details")
+    }
+
+    /// The minute each side gets to sow, counting down while an online
+    /// session is live — the local player's own clock, or the opponent's while
+    /// this side waits. Kept inside a `TimelineView` so the twice-a-second
+    /// redraw stays in this label instead of invalidating everything that
+    /// reads the game state, and built at all only during a match, so nothing
+    /// is ticking behind the menu.
+    @ViewBuilder
+    private var onlineTurnClock: some View {
+        if gameMode == .onlineMultiplayer,
+           !game.isGameOver,
+           let deadline = onlineManager.turnDeadline {
+            TimelineView(.periodic(from: .now, by: 0.5)) { context in
+                let remaining = max(0, deadline.timeIntervalSince(context.date))
+                let seconds = Int(remaining.rounded(.up))
+                let isUrgent = remaining <= 10
+
+                HStack(spacing: 4) {
+                    Image(systemName: "timer")
+                        .font(.caption2.weight(.bold))
+
+                    Text("\(seconds / 60):\(String(format: "%02d", seconds % 60))")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .contentTransition(.numericText(countsDown: true))
+                }
+                .foregroundStyle(isUrgent ? Color.red : secondaryText)
+                .animation(.easeInOut(duration: 0.2), value: isUrgent)
+                .accessibilityLabel(
+                    onlineManager.isLocalTurnClock
+                        ? "\(seconds) seconds left to make your move"
+                        : "\(seconds) seconds left for \(onlineManager.opponentName)"
+                )
+            }
+        }
     }
 
     private var displayedThoughtLog: [String] {
@@ -2788,6 +3069,7 @@ struct ContentView: View {
         }
 
         if gameMode == .onlineMultiplayer {
+            startFreshOnlineSession()
             onlineManager.startMatch()
         } else {
             resetCurrentGame()
@@ -2861,7 +3143,7 @@ struct ContentView: View {
         }
 
         if newMode == .onlineMultiplayer {
-            applyPendingOnlineMatchIfNeeded()
+            Task { await applyPendingOnlineMatchIfNeeded() }
         }
 
         if newMode == .singlePlayer || (newMode == .zeroPlayer && !isZeroPlayerPaused) {
@@ -2915,6 +3197,12 @@ struct ContentView: View {
     }
 
     private func savedGameState(for mode: GameMode) -> SavedGameState? {
+        // Online sessions always open on a fresh board. A match doesn't
+        // outlive the app being closed (see `handleAppDidEnterBackground`), so
+        // there is never an online board worth resuming — and the menu's
+        // "Continue your game" subtitle reads this too, which is right.
+        guard mode != .onlineMultiplayer else { return nil }
+
         let data = savedGameData(for: mode)
         guard !data.isEmpty else { return nil }
         return try? JSONDecoder().decode(SavedGameState.self, from: data)
@@ -2929,7 +3217,7 @@ struct ContentView: View {
         case .zeroPlayer:
             savedZeroPlayerGameState
         case .onlineMultiplayer:
-            savedOnlineGameState
+            Data()
         }
     }
 
@@ -2942,7 +3230,7 @@ struct ContentView: View {
         case .zeroPlayer:
             savedZeroPlayerGameState = data
         case .onlineMultiplayer:
-            savedOnlineGameState = data
+            break
         }
     }
 
@@ -2956,6 +3244,8 @@ struct ContentView: View {
         guard activeChallenge == nil else { return }
 
         let mode = mode ?? gameMode
+        guard mode != .onlineMultiplayer else { return }
+
         if game.isGameOver {
             clearSavedGameState(for: mode)
             return
@@ -3309,43 +3599,106 @@ struct ContentView: View {
         guard gameMode == .onlineMultiplayer else { return }
         guard onlineManager.localPlayerSide == movingPlayer else { return }
 
+        pendingOnlineMoveIndices.append(selectedIndex)
+
         if !game.isGameOver, game.currentPlayer == movingPlayer {
             onlineManager.noteLocalExtraTurn()
             return
         }
 
+        // Handed over as a run, not a single index: an extra turn keeps the
+        // board here for another sow, and the far device needs all of them to
+        // animate the turn rather than jump to its result.
+        let moves = pendingOnlineMoveIndices
+        pendingOnlineMoveIndices.removeAll()
+
         onlineManager.sendTurn(
             game: game,
-            lastMoveIndex: selectedIndex,
+            moveIndices: moves,
             playerOneName: displayName(for: .playerOne),
             playerTwoName: displayName(for: .playerTwo)
         )
     }
 
-    private func applyPendingOnlineMatchIfNeeded() {
-        guard let payload = onlineManager.pendingPayload else {
-            if gameMode == .onlineMultiplayer,
-               onlineManager.currentMatchID != nil,
-               game.pits.reduce(0, +) != 48 {
-                game.reset(startingPlayer: .playerOne)
-            }
-            return
+    @MainActor
+    private func applyPendingOnlineMatchIfNeeded() async {
+        // A replay already running owns the board; it picks up anything that
+        // arrives behind it once the stones have settled.
+        guard !isReplayingOnlineMove else { return }
+        guard let update = onlineManager.pendingUpdate else { return }
+        onlineManager.clearPendingUpdate()
+
+        // Anything from a match this board doesn't belong to is a new session,
+        // and a session always opens on the standard layout — whatever the
+        // last one left behind was that one's, not this one's. Doing it here
+        // rather than only when the payload is empty also means the opponent's
+        // opening move has a fresh board to animate onto.
+        if appliedOnlineMatchID != update.matchID {
+            startFreshOnlineSession()
+            appliedOnlineMatchID = update.matchID
         }
+
+        // Nobody has moved yet: the fresh board above is the whole update.
+        guard !update.isNewMatch, let payload = update.payload else { return }
 
         onlinePlayerOneName = payload.playerOneName
         onlinePlayerTwoName = payload.playerTwoName
 
+        let arrived = payload.game.game
+        if await replayOpponentMoves(payload.moves, arrivingAt: arrived) {
+            // Anything that landed while the stones were in flight.
+            if onlineManager.pendingUpdate != nil {
+                await applyPendingOnlineMatchIfNeeded()
+            }
+            return
+        }
+
+        // No replay was possible — a board that had drifted out of step, a
+        // match joined partway, or a payload from a build that only sent its
+        // last move. Take the state that arrived as it stands.
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
-            game = payload.game.game
+            game = arrived
             flyingStone = nil
             hintedPitIndex = nil
             isAnimatingMove = false
             isAIMovePending = false
             hasRecordedCurrentCompletedGame = false
         }
-        onlineManager.clearPendingPayload()
         recordCompletedGameIfNeeded()
-        persistStableGameState(for: .onlineMultiplayer)
+    }
+
+    /// Plays the opponent's turn out on this device — every sow of it, stone
+    /// by stone, through the same animation a local move uses.
+    ///
+    /// Rehearsed on a copy first, and abandoned before the board moves at all
+    /// unless the whole run is legal from where this device stands *and* ends
+    /// on exactly the board that arrived. That keeps a drifted board from
+    /// animating its way somewhere plausible but wrong; the caller snaps to
+    /// the received state instead.
+    @MainActor
+    private func replayOpponentMoves(_ moves: [Int], arrivingAt arrived: MancalaGame) async -> Bool {
+        guard let localSide = onlineManager.localPlayerSide,
+              game.canReplay(moves, as: localSide.opponent, arrivingAt: arrived) else {
+            return false
+        }
+
+        isReplayingOnlineMove = true
+        for move in moves {
+            await animateMove(from: move)
+        }
+        isReplayingOnlineMove = false
+
+        // Insurance. The rehearsal says these already agree, but a board the
+        // far device doesn't share is the one failure worth never risking.
+        if !game.matches(arrived) {
+            game = arrived
+        }
+
+        // The clock only starts once the board has settled, so the seconds
+        // spent watching the opponent's stones travel don't come out of the
+        // local player's own minute.
+        onlineManager.restartLocalTurnClock()
+        return true
     }
 
     @MainActor

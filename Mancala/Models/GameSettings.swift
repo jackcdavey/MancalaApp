@@ -20,7 +20,9 @@ enum VisualTheme: String, CaseIterable, Identifiable {
 /// Ordered by family — woods, clay, stones, metal, glass — because `allCases`
 /// is what fills the Material picker. The setting persists by `rawValue`, so
 /// the order is free to change.
-enum BoardMaterialStyle: String, CaseIterable, Identifiable {
+/// `nonisolated` so it can be passed into the off-main texture bakes; see
+/// `BoardTextureBuilder`.
+nonisolated enum BoardMaterialStyle: String, CaseIterable, Identifiable, Sendable {
     case walnut
     case maple
     case terracotta
@@ -268,6 +270,63 @@ enum BoardBackgroundStyle: String, CaseIterable, Identifiable {
         }
     }
 }
+
+#if os(visionOS)
+/// How much light the app adds to the 3D board on top of the room's own.
+///
+/// In the shared space RealityKit lights the board from the real room, so the
+/// board dims as the room does. That is most of what makes it sit convincingly
+/// on a real table — but the room's light is *all* the board gets, and it runs
+/// out early: a lamp-lit evening room leaves the wood nearly black long before
+/// the room itself looks dark. Each step above `room` adds a fixed overhead
+/// fill the room can't take away.
+///
+/// The steps are amounts of added light, not target brightnesses. Nothing in
+/// the shared space reports how bright the room actually is — ARKit's light
+/// estimation needs an immersive space, which this app doesn't open — so the
+/// app can lift what's there but can't aim for a level.
+enum BoardBrightness: String, CaseIterable, Identifiable {
+    case room
+    case low
+    case medium
+    case high
+    case max
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .room: "Room"
+        case .low: "Low"
+        case .medium: "Medium"
+        case .high: "High"
+        case .max: "Max"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .room: "The board is lit only by your surroundings, and dims with them."
+        case .low: "A little light of its own, so the board doesn't fade out as the room dims."
+        case .medium: "A steady light over the board, with the room still setting the mood."
+        case .high: "A brightly lit board that stays readable in a dark room."
+        case .max: "The board carries its own light, near enough whatever the room is doing."
+        }
+    }
+
+    /// Illuminance of the overhead fill, in lux. Zero leaves the board on the
+    /// room's light alone — RealityKit's untouched behaviour.
+    var fillIlluminance: Float {
+        switch self {
+        case .room: 0
+        case .low: 700
+        case .medium: 1500
+        case .high: 2400
+        case .max: 3400
+        }
+    }
+}
+#endif
 
 enum GameMode: String, CaseIterable, Identifiable {
     case twoPlayer

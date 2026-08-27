@@ -6,7 +6,7 @@ import simd
 /// happens in plain arrays so it can run off the main actor; only the final
 /// `MeshResource` creation touches RealityKit.
 enum BoardMeshBuilder {
-    struct MeshData: Sendable {
+    nonisolated struct MeshData: Sendable {
         var positions: [SIMD3<Float>] = []
         var normals: [SIMD3<Float>] = []
         var uvs: [SIMD2<Float>] = []
@@ -26,7 +26,7 @@ enum BoardMeshBuilder {
 
     /// Half-width of the rounded-rectangle footprint at a given z, so grid
     /// rows conform exactly to the outline (no cracks against the skirt).
-    static func halfWidth(atZ z: Float) -> Float {
+    nonisolated static func halfWidth(atZ z: Float) -> Float {
         let halfW = BoardLayout3D.width / 2
         let halfD = BoardLayout3D.depth / 2
         let r = BoardLayout3D.cornerRadius
@@ -37,7 +37,7 @@ enum BoardMeshBuilder {
     }
 
     /// Outward outline normal of the rounded rectangle at boundary point `p`.
-    private static func outlineNormal(at p: SIMD2<Float>) -> SIMD2<Float> {
+    nonisolated private static func outlineNormal(at p: SIMD2<Float>) -> SIMD2<Float> {
         let halfW = BoardLayout3D.width / 2
         let halfD = BoardLayout3D.depth / 2
         let r = BoardLayout3D.cornerRadius
@@ -52,7 +52,7 @@ enum BoardMeshBuilder {
     }
 
     /// The carved slab: displaced top grid + extruded skirt + bottom cap.
-    static func slabMeshData(columns: Int = 220, rows: Int = 100) -> MeshData {
+    nonisolated static func slabMeshData(columns: Int = 220, rows: Int = 100) -> MeshData {
         var data = MeshData()
         let width = BoardLayout3D.width
         let depth = BoardLayout3D.depth
@@ -149,7 +149,7 @@ enum BoardMeshBuilder {
 
     /// Outline of a well scaled by `scale` (1 = the rim), sampled with a
     /// fixed segment structure so inner/outer rings pair up one-to-one.
-    private static func wellOutline(_ well: BoardLayout3D.Well, scale: Float) -> [SIMD2<Float>] {
+    nonisolated private static func wellOutline(_ well: BoardLayout3D.Well, scale: Float) -> [SIMD2<Float>] {
         let r = well.radius * scale
         let halfLength = well.axisHalfLength
         var points: [SIMD2<Float>] = []
@@ -178,7 +178,7 @@ enum BoardMeshBuilder {
     /// A thin annulus straddling the well rim, draped over the carved surface
     /// and lifted slightly to avoid z-fighting. Rendered unlit + double-sided,
     /// positioned in board space (vertices are absolute, entity sits at origin).
-    static func ringMeshData(
+    nonisolated static func ringMeshData(
         around well: BoardLayout3D.Well,
         innerScale: Float = 0.90,
         outerScale: Float = 1.07,
@@ -213,6 +213,6 @@ enum BoardMeshBuilder {
 }
 
 /// `(0...n).reversed()` with a type Swift's inference keeps simple.
-private func std_reversed(_ range: ClosedRange<Int>) -> [Int] {
+nonisolated private func std_reversed(_ range: ClosedRange<Int>) -> [Int] {
     Array(range.reversed())
 }

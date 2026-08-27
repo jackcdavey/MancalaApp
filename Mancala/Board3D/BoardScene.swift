@@ -127,6 +127,12 @@ final class BoardScene {
     private let boardRoot = Entity()
     private let iblEntity = Entity()
     private let keyLight = Entity()
+    #if os(visionOS)
+    /// The two overhead fill lights that top up the room's own lighting; see
+    /// `BoardBrightness` and `applyBrightness`.
+    private let fillLight = Entity()
+    private let counterFillLight = Entity()
+    #endif
 
     // All of the private bookkeeping below is @ObservationIgnored: `sync`
     // runs inside RealityView's `update:` closure, so any tracked property it
@@ -202,6 +208,9 @@ final class BoardScene {
     @ObservationIgnored private var viewSize = CGSize(width: 1, height: 1)
     @ObservationIgnored private var labelsVisible = true
     @ObservationIgnored private var isDark = false
+    #if os(visionOS)
+    @ObservationIgnored private var brightness = AppDefaults.boardBrightness
+    #endif
     @ObservationIgnored private var parallaxYaw: Float = 0
     @ObservationIgnored private var parallaxPitch: Float = 0
     /// 0 at rest, peaks at 1 mid-flip; dollies the camera back during the swing.
@@ -214,6 +223,16 @@ final class BoardScene {
     /// Overscan factor pulling the camera back so the near (bottom) edge, its
     /// rim, and the raised front-row stones/labels are never clipped.
     private let boardFillMargin: Float = 1.2
+
+    #if os(visionOS)
+    /// How far the fill lights lean off vertical, in radians. Steep, so the
+    /// pits keep some depth instead of being flooded flat, but not so steep
+    /// that the light skims the wood and leaves the far row dark.
+    private static let fillTilt: Float = 1.1
+    /// The opposing fill's share of the main one. Below half, so the board
+    /// still reads as lit from somewhere rather than from everywhere.
+    private static let counterFillShare: Float = 0.55
+    #endif
 
     /// Pass-and-play flip as a single rotation of the camera about the board's
     /// horizontal (world-X) axis: the camera arcs up over the top to the
@@ -377,13 +396,30 @@ final class BoardScene {
             labelTextEntities.append(text)
         }
 
-        #if !os(visionOS)
+        #if os(visionOS)
+        // Mixed immersion already lights the board from the real room, and
+        // that is what makes it sit on a real table convincingly — so no image
+        // -based light and no key light here, which would double-expose it.
+        // What the room can't do is hold a floor under itself: it is the
+        // board's only light source, so a dim room takes the board down with
+        // it, and much further than it takes the room. These two lights top it
+        // back up by however much the player has asked for, and carry no light
+        // at all at `.room` (see `applyBrightness`).
+        //
+        // Opposed along the board's length so neither row of pits is left in
+        // shadow whichever way the board is turned, and deliberately
+        // shadowless: a virtual light dropping a shadow across a real table is
+        // what gives the trick away. The slab's `GroundingShadowComponent`
+        // still seats it on the surface below.
+        fillLight.orientation = simd_quatf(angle: -Self.fillTilt, axis: SIMD3(1, 0, 0))
+        counterFillLight.orientation = simd_quatf(angle: Self.fillTilt - .pi, axis: SIMD3(1, 0, 0))
+        root.addChild(fillLight)
+        root.addChild(counterFillLight)
+        #else
         // Lighting: image-based light for the glass/varnish reflections plus
         // a shadow-casting key light for stone grounding. Only the currently
         // needed scheme's environment is built now; the other is constructed
         // lazily the first time the color scheme flips, keeping launch cheaper.
-        // On visionOS neither is added: mixed immersion lights the board from
-        // the real room, so virtual lights would double-expose it.
         if let environment = await ensureEnvironment(dark: isDark) {
             iblEntity.components.set(ImageBasedLightComponent(source: .single(environment), intensityExponent: 0.9))
             root.components.set(ImageBasedLightReceiverComponent(imageBasedLight: iblEntity))
@@ -412,6 +448,11 @@ final class BoardScene {
         root.addChild(boardRoot)
 
         isBuilt = true
+        #if os(visionOS)
+        // Whatever level arrived while the graph was still being built.
+        applyBrightness()
+        #endif
+        warmRenderer()
         if let pending = pendingSync {
             pendingSync = nil
             sync(
@@ -828,9 +869,41 @@ final class BoardScene {
         }
     }
 
+    #if os(visionOS)
+    /// Sets how much light the app adds over the room's own; see
+    /// `BoardBrightness`. Safe to call before the graph is built — the level is
+    /// kept and applied once it is.
+    func setBrightness(_ level: BoardBrightness) {
+        guard brightness != level else { return }
+        brightness = level
+        applyBrightness()
+    }
+
+    private func applyBrightness() {
+        guard isBuilt else { return }
+        let illuminance = brightness.fillIlluminance
+        // Removed rather than left at zero intensity, so `.room` is genuinely
+        // the untouched room-lit board and not a board shaded against two
+        // lights that happen to contribute nothing.
+        guard illuminance > 0 else {
+            fillLight.components.remove(DirectionalLightComponent.self)
+            counterFillLight.components.remove(DirectionalLightComponent.self)
+            return
+        }
+        // Slightly warm, matching the app's own cream-and-wood palette: a
+        // neutral white fill reads cold against the room it's added to.
+        let tint = PlatformColor(red: 1, green: 0.96, blue: 0.90, alpha: 1)
+        fillLight.components.set(DirectionalLightComponent(color: tint, intensity: illuminance))
+        counterFillLight.components.set(
+            DirectionalLightComponent(color: tint, intensity: illuminance * Self.counterFillShare)
+        )
+    }
+    #endif
+
     private func applyColorScheme() {
         #if os(visionOS)
-        // Real-room lighting; nothing scheme-dependent to swap.
+        // Real-room lighting; nothing scheme-dependent to swap. The fill lights
+        // are the player's to set and don't follow the scheme either.
         return
         #else
         // The opposite scheme's environment may not be built yet; construct it
@@ -955,6 +1028,67 @@ final class BoardScene {
         cameraRig.orientation = simd_quatf(angle: parallaxYaw, axis: SIMD3(0, 1, 0))
             * simd_quatf(angle: basePitch + parallaxPitch, axis: SIMD3(1, 0, 0))
         #endif
+    }
+
+    // MARK: - Rendering
+
+    /// Whether anything wants the board's pixels right now.
+    @ObservationIgnored private var wantsRendering = true
+    /// Cleared until the renderer has had real frames to warm up on; see
+    /// `warmRenderer()`.
+    @ObservationIgnored private var hasWarmedRenderer = false
+
+    /// Stop drawing the board without tearing anything down.
+    ///
+    /// The `RealityView` hosting this scene is never unmounted — recreating it
+    /// strands the entity graph (see `Board3DView`) — so the board is hidden
+    /// with SwiftUI's `.opacity(0)` instead, both under the main menu and
+    /// whenever the flat theme is the one on screen. RealityKit's renderer is
+    /// not occlusion-aware and knows nothing about the opacity of the SwiftUI
+    /// layer it draws into: a hidden board is still shaded, still lit by the
+    /// image-based environment, and still re-rendering `keyLight`'s shadow map,
+    /// every frame, forever. Sitting on the menu was paying for a full 3D scene
+    /// nobody could see.
+    ///
+    /// Disabling the geometry and the lights empties the frame instead. Nothing
+    /// is deallocated — meshes, materials, baked textures and the scene itself
+    /// all stay resident, and the camera rig stays enabled so the view still has
+    /// something to render *with* — so coming back is a flag flip, not the
+    /// rebuild `buildRoot` does.
+    func setRendering(_ enabled: Bool) {
+        guard wantsRendering != enabled else { return }
+        wantsRendering = enabled
+        applyRenderingState()
+    }
+
+    private func applyRenderingState() {
+        guard isBuilt else { return }
+        // Held on until the warm-up finishes, so a board built behind the menu
+        // still gets its pipelines compiled and its meshes uploaded there
+        // rather than on the first frame of the first game.
+        let enabled = wantsRendering || !hasWarmedRenderer
+        guard boardRoot.isEnabled != enabled else { return }
+        boardRoot.isEnabled = enabled
+        #if os(visionOS)
+        fillLight.isEnabled = enabled
+        counterFillLight.isEnabled = enabled
+        #else
+        keyLight.isEnabled = enabled
+        iblEntity.isEnabled = enabled
+        #endif
+    }
+
+    /// Give RealityKit a moment of real frames once the graph is built. The
+    /// engine compiles render pipelines and uploads GPU resources lazily, on
+    /// first draw, and that first draw is the expensive one — the whole reason
+    /// the board is kept mounted behind the menu. Disabling it the instant it
+    /// finishes building would just move that cost to the first game.
+    private func warmRenderer() {
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            hasWarmedRenderer = true
+            applyRenderingState()
+        }
     }
 
     /// Small smoothed offsets from device motion; the rig orbits the board

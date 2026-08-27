@@ -245,6 +245,7 @@ struct Board3DView: View {
                 content.add(sceneRoot)
                 syncScene(viewSize: geometry.size)
             } update: { _ in
+                PerfProbe.tick("RealityUpdate")
                 syncScene(viewSize: geometry.size)
             }
             .gesture(

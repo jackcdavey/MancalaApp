@@ -29,6 +29,13 @@ enum AppDefaults {
     static let stoneSetStyle = StoneSetStyle.classic
     /// Tilt-to-parallax on the 3D board.
     static let gyroMotionEnabled = false
+    #if os(visionOS)
+    /// Light the app adds to the 3D board on top of the room's own. `low`
+    /// rather than `room` because the room's light alone takes the board down
+    /// with it far too early; this is the gentlest step that still puts a floor
+    /// under how dark the board can get.
+    static let boardBrightness = BoardBrightness.low
+    #endif
     /// Multiplier applied to every stone animation (0.25...4).
     static let stoneAnimationSpeed = 1.0
     /// Rotate the whole table 180° between turns in pass-and-play.

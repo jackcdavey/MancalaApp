@@ -7,7 +7,14 @@ import simd
 /// wells' ambient occlusion baked in, and a small equirectangular environment
 /// image used for image-based lighting so the glass stones pick up bright
 /// window-like reflections.
-enum BoardTextureBuilder {
+/// `nonisolated` is load-bearing, not tidiness. The project builds with
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so without it every method here
+/// is main-actor-isolated — and the `Task.detached` blocks that exist purely to
+/// get these bakes off the main thread hop straight back onto it to make the
+/// call, running a 2048×1024 per-pixel bake on the main actor while the UI waits
+/// on it. Nothing in this file touches RealityKit or any shared mutable state,
+/// so there is nothing for the isolation to protect.
+nonisolated enum BoardTextureBuilder {
     // MARK: - Value noise
 
     private struct ValueNoise {

@@ -14,7 +14,9 @@ import simd
 ///
 /// This is the single source of truth shared by the mesh builder, the
 /// texture baker (ambient-occlusion bake), stone placement, and tap targets.
-enum BoardLayout3D {
+/// `nonisolated` so the mesh and texture builders can read the layout from the
+/// background tasks they're meant to run in; see `BoardTextureBuilder`.
+nonisolated enum BoardLayout3D {
     static let width: Float = 0.66
     static let depth: Float = 0.28
     static let thickness: Float = 0.045
