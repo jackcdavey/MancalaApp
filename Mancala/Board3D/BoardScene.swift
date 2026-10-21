@@ -544,6 +544,9 @@ final class BoardScene {
         }
     }
 
+    private nonisolated static let bakeWidth = 2048
+    private nonisolated static let bakeHeight = 1024
+
     /// Bakes the base-color image, the `TextureResource` built from it, and
     /// the assembled material for one finish.
     ///
@@ -558,8 +561,19 @@ final class BoardScene {
     /// `BoardScene`) apart from that one detached image bake.
     private func bakedMaterial(for style: BoardMaterialStyle) async -> PhysicallyBasedMaterial {
         let spec = Self.finishSpec(for: style)
-        let image = await Task.detached(priority: .userInitiated) {
-            BoardTextureBuilder.baseColor(for: style)
+        // A previous launch's bake from disk when there is one; otherwise bake
+        // now and write it out (in the background) for next time.
+        let image = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+            if let cached = BoardTextureCache.image(for: style, width: Self.bakeWidth, height: Self.bakeHeight) {
+                return cached
+            }
+            let baked = BoardTextureBuilder.baseColor(for: style, width: Self.bakeWidth, height: Self.bakeHeight)
+            if let baked {
+                Task.detached(priority: .utility) {
+                    BoardTextureCache.store(baked, for: style)
+                }
+            }
+            return baked
         }.value
 
         var material = PhysicallyBasedMaterial()
@@ -927,7 +941,7 @@ final class BoardScene {
     private func ensureEnvironment(dark: Bool) async -> EnvironmentResource? {
         if dark, let darkEnvironment { return darkEnvironment }
         if !dark, let lightEnvironment { return lightEnvironment }
-        let image = await Task.detached(priority: .userInitiated) {
+        let image = await Task.detached(priority: .userInitiated) { () -> CGImage? in
             BoardTextureBuilder.environmentEquirect(dark: dark)
         }.value
         guard let image else { return nil }
