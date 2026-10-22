@@ -114,6 +114,24 @@ struct ContentView: View {
         colorScheme == .dark
     }
 
+    /// Extra side padding, on top of the safe area, for the landscape game
+    /// layout. Landscape relies on the safe area for its side margins, which
+    /// works on phones whose landscape insets are equal — the Dynamic Island
+    /// side and its mirror. iPhone Duo's aren't: its camera insets one side
+    /// and leaves the other at zero, so the title ran into the rounded corner
+    /// and the whole layout, board included, sat off-center toward the bare
+    /// side. This pads the smaller side up to match the larger, with a floor
+    /// that keeps content clear of the display's corners.
+    private func landscapeSideInsets(_ safeArea: EdgeInsets, isPortrait: Bool) -> (leading: CGFloat, trailing: CGFloat) {
+        #if os(iOS)
+        guard !isPortrait else { return (0, 0) }
+        let target = max(safeArea.leading, safeArea.trailing, 24)
+        return (target - safeArea.leading, target - safeArea.trailing)
+        #else
+        return (0, 0)
+        #endif
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let isPortrait = geometry.size.height > geometry.size.width
@@ -130,11 +148,14 @@ struct ContentView: View {
                 // RealityKit scene the persisted `BoardScene` entity graph was
                 // attached to, leaving the board invisible (same failure mode
                 // as switching visual themes; see the ZStack in `gameContent`).
+                let landscapeInsets = landscapeSideInsets(geometry.safeAreaInsets, isPortrait: isPortrait)
                 gameContent(isPortrait: isPortrait, availableHeight: availableHeight)
                     .padding(.horizontal, isPortrait ? 16 : 0)
                     .padding(.vertical, verticalPadding)
                     .frame(maxWidth: isPortrait ? 520 : 980)
                     .frame(maxWidth: .infinity, maxHeight: isPortrait ? .infinity : nil, alignment: isPortrait ? .top : .center)
+                    .padding(.leading, landscapeInsets.leading)
+                    .padding(.trailing, landscapeInsets.trailing)
                     .opacity(gameContentOpacity)
                     .accessibilityHidden(isMainMenuPresented)
 
@@ -158,6 +179,8 @@ struct ContentView: View {
                 // menu sits on, and the menu carries no backdrop of its own.
                 if isMainMenuPresented {
                     mainMenu
+                        .padding(.leading, landscapeInsets.leading)
+                        .padding(.trailing, landscapeInsets.trailing)
                         .transition(.opacity)
                         .windowDepthOffset(menuDepthOffset)
                 }
@@ -1390,9 +1413,22 @@ struct ContentView: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// Fixed (never scrolling) landing page—the mode list is short enough to
-    /// always fit, and a bouncing title reads as a bug rather than a feature.
+    /// Fixed (non-scrolling) landing page wherever it fits—a bouncing title
+    /// reads as a bug rather than a feature. Landscape on a short screen (iPhone
+    /// Duo folded, or any phone on its side) can't hold the whole list, though,
+    /// and there the alternative is rows and the utility bar cut off below the
+    /// edge with no way to reach them, so only then does it scroll.
     private var mainMenuPage: some View {
+        ViewThatFits(in: .vertical) {
+            mainMenuPageContent
+
+            ScrollView(showsIndicators: false) {
+                mainMenuPageContent
+            }
+        }
+    }
+
+    private var mainMenuPageContent: some View {
         VStack(spacing: 30) {
             mainMenuHeader
 
